@@ -1930,12 +1930,36 @@ class Handler(BaseHTTPRequestHandler):
             except BrokenPipeError:
                 pass
         else:
-            self.send_response(404)
-            self.end_headers()
-            try:
-                self.wfile.write(b'Not Found')
-            except BrokenPipeError:
-                pass
+            # Serve static files (CSS/JS/images)
+            static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
+            rel_path = self.path.lstrip('/')
+            # Strip 'static/' prefix since static_dir already includes it
+            if rel_path.startswith('static/'):
+                rel_path = rel_path[len('static/'):]
+            file_path = os.path.normpath(os.path.join(static_dir, rel_path))
+            if file_path.startswith(static_dir) and os.path.isfile(file_path):
+                ext = os.path.splitext(file_path)[1].lower()
+                ct = {'.css': 'text/css; charset=utf-8', '.js': 'application/javascript; charset=utf-8',
+                      '.png': 'image/png', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml',
+                      '.ico': 'image/x-icon', '.woff2': 'font/woff2'}.get(ext, 'application/octet-stream')
+                try:
+                    with open(file_path, 'rb') as f:
+                        body = f.read()
+                    self.send_response(200)
+                    self.send_header('Content-Type', ct)
+                    self.send_header('Content-Length', len(body))
+                    self.send_header('Cache-Control', 'max-age=300')
+                    self.end_headers()
+                    self.wfile.write(body)
+                except (IOError, BrokenPipeError):
+                    pass
+            else:
+                self.send_response(404)
+                self.end_headers()
+                try:
+                    self.wfile.write(b'Not Found')
+                except BrokenPipeError:
+                    pass
 
     def do_HEAD(self):
         self.send_response(200)
