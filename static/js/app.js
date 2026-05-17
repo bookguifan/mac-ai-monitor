@@ -231,9 +231,9 @@ function render(d){
     </div>
     <div class="gauge-card">
       ${sparkline(mem_hist, 220, 32, pct_c(mem_p,70,85))}
-      <div class="g-svg">${donut(mem.avail_pct||0,90,7,pct_c(100-mem.avail_pct||0,70,85))}</div>
-      <div class="g-label">内存可用</div>
-      <div class="g-val" style="color:${pct_c(100-mem.avail_pct||0,70,85)}">${fmt_pct(mem.avail_pct)}</div>
+      <div class="g-svg">${donut(100-(mem.avail_pct||0),90,7,pct_c(mem.used_pct,70,85))}</div>
+      <div class="g-label">内存使用</div>
+      <div class="g-val" style="color:${pct_c(mem.used_pct,70,85)}">${fmt_pct(mem.used_pct)}</div>
       <div class="g-sub">可用 ${fmt_gb(mem.available_gb)} / ${fmt_gb(mem.total_gb)}</div>
     </div>
     <div class="gauge-card">
@@ -241,7 +241,7 @@ function render(d){
       <div class="g-svg">${donut(disk_p,90,7,pct_c(disk_p,70,85))}</div>
       <div class="g-label">磁盘使用</div>
       <div class="g-val" style="color:${pct_c(disk_p,70,85)}">${disk_p}%</div>
-      <div class="g-sub">可用 ${esc(disk.available||'—')}</div>
+      <div class="g-sub">可用 ${fmt_size(disk.available||'—')}</div>
     </div>
   </div>`;
 
@@ -334,7 +334,7 @@ function render(d){
         ${(disk.volumes||[]).length===0?'<div style="color:var(--text3);padding:12px">暂无可用磁盘</div>':(disk.volumes||[]).slice(0,6).map(v=>`
         <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid var(--border);font-size:11px">
           <span style="color:var(--text2);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(v.dev)}">${esc(v.name||v.dev)}</span>
-          <span style="color:${v.pct&&parseInt(v.pct)>=90?'var(--red)':'var(--text2)'};margin-left:8px;white-space:nowrap">${esc(v.pct||'')} ${v.used||''} / ${esc(v.size||'')}</span>
+          <span style="color:${v.pct&&parseInt(v.pct)>=90?'var(--red)':'var(--text2)'};margin-left:8px;white-space:nowrap">${esc(v.pct||'')} ${fmt_size(v.used)} / ${fmt_size(v.size)}</span>
         </div>`).join('')}
       </div>
     </div>
@@ -649,10 +649,15 @@ function render(d){
       ${tool_stats.length>0?`
       <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px;padding:6px 0;border-bottom:1px solid var(--border)">
         <span style="font-size:10px;color:var(--text3);margin-right:4px;line-height:2">热门工具:</span>
-        ${tool_stats.slice(0,10).map(t=>`
-        <span style="font-size:10px;background:var(--card-h);padding:2px 7px;border-radius:10px;color:var(--text2);cursor:pointer" title="${esc(t.skill||'')}" onclick="document.getElementById('skill-search').value='${esc(t.skill&&t.skill!=='内置工具'?t.skill:t.name)}';filterSkills()">
-          ${esc(t.name||'?')}<span style="color:var(--accent);margin-left:3px">${t.count||0}</span>${t.skill&&t.skill!=='内置工具'?`<span style="color:var(--text3);font-size:9px;margin-left:2px">${esc(t.skill)}</span>`:''}
-        </span>`).join('')}
+        ${tool_stats.slice(0,10).map(t=>{
+          // t may be [name, count] array or {name, count, skill} object
+          const tn = Array.isArray(t) ? t[0] : (t.name||'?');
+          const tc = Array.isArray(t) ? t[1] : (t.count||0);
+          const ts = Array.isArray(t) ? '' : (t.skill||'');
+          return `
+        <span style="font-size:10px;background:var(--card-h);padding:2px 7px;border-radius:10px;color:var(--text2);cursor:pointer" title="${esc(ts)}" onclick="document.getElementById('skill-search').value='${esc(ts&&ts!=='内置工具'?ts:tn)}';filterSkills()">
+          ${esc(tn)}<span style="color:var(--accent);margin-left:3px">${tc}</span>${ts&&ts!=='内置工具'?`<span style="color:var(--text3);font-size:9px;margin-left:2px">${esc(ts)}</span>`:''}
+        </span>`;}).join('')}
       </div>`:''}
       <div id="skill-content">
         ${skill_apps.map(app=>`
