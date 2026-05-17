@@ -740,11 +740,28 @@ def _collect_cpu(now):
                     u = re.search(r'(\d+\.?\d*)%\s*user',line)
                     s = re.search(r'(\d+\.?\d*)%\s*sys',line)
                     i = re.search(r'(\d+\.?\d*)%\s*idle',line)
+                    # cores via sysctl (cached with CPU)
+                    cores = None
+                    try:
+                        cores_out = run_cmd(['sysctl','-n','hw.ncpu'], 3)
+                        cores = int(cores_out.strip()) if cores_out.strip().isdigit() else None
+                    except Exception:
+                        pass
+                    # CPU die temp (requires sudo powermetrics on macOS)
+                    temp = None
+                    try:
+                        t_out = run_cmd(['sudo','powermetrics','--samplers','smc','-i','1','-n','1'], 5)
+                        t_m = re.search(r'(?:CPU|Die) die temperature[^:]*:\s*(\d+)', t_out)
+                        if t_m: temp = int(t_m.group(1))
+                    except Exception:
+                        pass
                     cpu_data = {
                         'user_pct': round(float(u.group(1)),1) if u else 0,
                         'sys_pct': round(float(s.group(1)),1) if s else 0,
                         'idle_pct': round(float(i.group(1)),1) if i else 0,
                         'used_pct': round(((float(u.group(1)) if u else 0)+(float(s.group(1)) if s else 0)),1),
+                        'cores': cores,
+                        'temp': temp,
                     }
                     _cpu_cache['data'] = cpu_data
                     _cpu_cache['ts'] = _now
@@ -1146,9 +1163,13 @@ def _collect_gateway(shared, now, system_data, cpu_data, mem_data, disk_data, sw
     cores = system_data.get('cpu_p', 1)
     if cores > 0 and l1 / cores > 2: hs -= 10
 
+    # Extract pids and ports from instances for convenience
+    gw_pids = [g.get('pid') for g in gateways if g.get('pid')]
+    gw_ports = [g.get('port') for g in gateways if g.get('port') and g.get('port') != '—']
     data['gateway'] = {'count': len(gateways), 'merged_count': len(merged),
         'instances': gateways, 'merged': merged,
         'idle_count': len(idle), 'idle_instances': idle, 'models': gw_models,
+        'pids': gw_pids, 'ports': gw_ports,
         'health_score': max(hs, 0)}
 
     # Trigger alerts
