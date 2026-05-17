@@ -1362,7 +1362,11 @@ def _collect_session_stats(skills_data):
                 _skill_stats[sn] = {'calls': 0, 'last_call': '', 'last_mtime': 0}
 
     _tool_counts = {}
-    session_stats = {'total_tokens': 0, 'total_messages': 0, 'active_sessions': 0, 'today_tokens': 0}
+    _assistant_count = 0
+    _tool_call_total = 0
+    _total_content_len = 0
+    session_stats = {'total_tokens': 0, 'total_messages': 0, 'active_sessions': 0, 'today_tokens': 0,
+                      'assistant_messages': 0, 'tool_calls': 0}
     today = datetime.date.today()
 
     _session_files = _build_session_index()
@@ -1373,6 +1377,7 @@ def _collect_session_stats(skills_data):
         sample_msgs = msgs[:_MAX_TOKEN_SAMPLE]
         for obj in sample_msgs:
             if not isinstance(obj, dict): continue
+            # Try usage field (some session formats include it)
             usage = obj.get('usage', {})
             if isinstance(usage, dict):
                 tokens = usage.get('total_tokens', 0) or usage.get('total', 0)
@@ -1385,34 +1390,50 @@ def _collect_session_stats(skills_data):
                             if mt == today:
                                 session_stats['today_tokens'] += tokens
                         except Exception: pass
-            if obj.get('type') == 'message' or obj.get('role') == 'assistant':
-                tcs = obj.get('tool_calls') or obj.get('message', {}).get('tool_calls') or []
-                for tc in (tcs if isinstance(tcs, list) else []):
-                    if not isinstance(tc, dict): continue
-                    fn = tc.get('function', {}) if isinstance(tc, dict) else {}
-                    tname = fn.get('name', '') if isinstance(fn, dict) else str(fn)
-                    if not tname: continue
-                    _tool_counts[tname] = _tool_counts.get(tname, 0) + 1
-                    if tname in _TOOL_SKILL_EXACT:
-                        skill_name = _TOOL_SKILL_EXACT[tname]
-                        st = _skill_stats.get(skill_name)
-                        if st:
-                            st['calls'] += 1
-                            if mtime > st['last_mtime']:
-                                st['last_mtime'] = mtime
-                                st['last_call'] = datetime.datetime.fromtimestamp(mtime).strftime('%m-%d %H:%M')
-                    else:
-                        matched = False
-                        for prefix, skill_name in sorted(_tool_skill_map.items(), key=lambda x: -len(x[0])):
-                            if tname.startswith(prefix):
-                                st = _skill_stats.get(skill_name)
-                                if st:
-                                    st['calls'] += 1
-                                    if mtime > st['last_mtime']:
-                                        st['last_mtime'] = mtime
-                                        st['last_call'] = datetime.datetime.fromtimestamp(mtime).strftime('%m-%d %H:%M')
-                                matched = True
-                                break
+            # Count assistant messages and tool calls for estimation
+            if obj.get('role') == 'assistant':
+                _assistant_count += 1
+                content = obj.get('content', '')
+                if isinstance(content, str):
+                    _total_content_len += len(content)
+                tcs = obj.get('tool_calls', [])
+                if isinstance(tcs, list):
+                    _tool_call_total += len(tcs)
+                    for tc in tcs:
+                        if not isinstance(tc, dict): continue
+                        fn = tc.get('function', {})
+                        tname = fn.get('name', '') if isinstance(fn, dict) else str(fn)
+                        if not tname: continue
+                        _tool_counts[tname] = _tool_counts.get(tname, 0) + 1
+                        if tname in _TOOL_SKILL_EXACT:
+                            skill_name = _TOOL_SKILL_EXACT[tname]
+                            st = _skill_stats.get(skill_name)
+                            if st:
+                                st['calls'] += 1
+                                if mtime > st['last_mtime']:
+                                    st['last_mtime'] = mtime
+                                    st['last_call'] = datetime.datetime.fromtimestamp(mtime).strftime('%m-%d %H:%M')
+                        else:
+                            matched = False
+                            for prefix, skill_name in sorted(_tool_skill_map.items(), key=lambda x: -len(x[0])):
+                                if tname.startswith(prefix):
+                                    st = _skill_stats.get(skill_name)
+                                    if st:
+                                        st['calls'] += 1
+                                        if mtime > st['last_mtime']:
+                                            st['last_mtime'] = mtime
+                                            st['last_call'] = datetime.datetime.fromtimestamp(mtime).strftime('%m-%d %H:%M')
+                                    matched = True
+                                    break
+    # Estimate tokens from assistant content + tool calls when usage not available
+    if session_stats['total_tokens'] == 0 and _assistant_count > 0:
+        # Rough estimate: ~3 chars per token for mixed content, ~150 tokens per tool call
+        estimated = int(_total_content_len / 3) + (_tool_call_total * 150)
+        session_stats['total_tokens'] = estimated
+        session_stats['today_tokens'] = None  # can't estimate per-day from sample
+        session_stats['_estimated'] = True
+    session_stats['assistant_messages'] = _assistant_count
+    session_stats['tool_calls'] = _tool_call_total
 
     tool_stats = sorted(_tool_counts.items(), key=lambda x: -x[1])[:15]
     _direct_map = {

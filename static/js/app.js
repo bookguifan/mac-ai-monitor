@@ -213,7 +213,7 @@ function render(d){
     <div class="qi">
       <span class="qi-label">会话</span>
       <span class="qi-val">${sess.active_sessions||0}</span>
-      <span class="qi-sub">${((sess.total_tokens||0)/1000).toFixed(0)}k tokens</span>
+      <span class="qi-sub">${sess.total_messages||0} 消息</span>
     </div>
   </div>`;
 
@@ -542,6 +542,8 @@ function render(d){
   </div>`;
 
   // --- Session Stats ---
+  const _estTokens = sess._estimated;
+  const _fmtTok = (v) => v==null ? '—' : v>=1e6 ? (v/1e6).toFixed(1)+'M' : v>=1e3 ? (v/1e3).toFixed(0)+'k' : String(v);
   html+=`<div class="card">
     <div class="ch">会话统计 <span class="ch-r">${sess.active_sessions||0}个活跃</span></div>
     <div class="cb">
@@ -551,17 +553,18 @@ function render(d){
           <div style="font-size:11px;color:var(--text3)">活跃会话</div>
         </div>
         <div>
-          <div style="font-size:24px;font-weight:700;color:var(--green)">${((sess.total_tokens||0)/1000).toFixed(0)}k</div>
-          <div style="font-size:11px;color:var(--text3)">总 Token</div>
+          <div style="font-size:24px;font-weight:700;color:var(--green)">${_fmtTok(sess.total_tokens)}${_estTokens?'<span style="font-size:9px;color:var(--text3)">≈</span>':''}</div>
+          <div style="font-size:11px;color:var(--text3)">总 Token${_estTokens?' (估算)':''}</div>
         </div>
         <div>
-          <div style="font-size:24px;font-weight:700;color:var(--orange)">${((sess.today_tokens||0)/1000).toFixed(0)}k</div>
+          <div style="font-size:24px;font-weight:700;color:var(--orange)">${_fmtTok(sess.today_tokens)}</div>
           <div style="font-size:11px;color:var(--text3)">今日 Token</div>
         </div>
       </div>
-      <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);text-align:center">
-        <span style="color:var(--text2);font-size:12px">总消息数：</span>
-        <span style="color:var(--accent);font-weight:600">${sess.total_messages||0}</span>
+      <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);display:flex;justify-content:center;gap:20px">
+        <span style="color:var(--text2);font-size:12px">消息 <span style="color:var(--accent);font-weight:600">${sess.total_messages||0}</span></span>
+        <span style="color:var(--text2);font-size:12px">助手 <span style="color:var(--green);font-weight:600">${sess.assistant_messages||0}</span></span>
+        <span style="color:var(--text2);font-size:12px">工具 <span style="color:var(--orange);font-weight:600">${sess.tool_calls||0}</span></span>
       </div>
     </div>
   </div>`;
@@ -826,7 +829,7 @@ function _initCollapsible(){
 // Auto模式: 每30s拉取全量数据，适合持续观察
 // Manual模式: 不自动拉取，用户点击刷新按钮读取缓存，适合低频查看
 // =============================================
-let _autoRefresh = true;
+let _autoRefresh = false;
 let _autoInterval = null;
 let _countdown = null;
 let _lastRefreshMs = 0;
