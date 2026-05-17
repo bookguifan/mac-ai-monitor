@@ -172,20 +172,33 @@ def _scan_session_dirs():
     return files
 
 def _load_messages(fp):
-    """Parse a session file into a list of message dicts."""
+    """Parse a session file into a list of message dicts, normalizing nested formats."""
     opener = gzip.open if str(fp).endswith('.gz') else open
     with opener(fp, 'rt', errors='replace') as sf:
         raw = sf.read()
     try:
         doc = json.loads(raw)
-        return doc.get('messages', [])
+        raw_msgs = doc.get('messages', [])
     except Exception:
-        msgs = []
+        raw_msgs = []
         for line in raw.strip().split('\n'):
             if line.strip():
-                try: msgs.append(json.loads(line))
+                try: raw_msgs.append(json.loads(line))
                 except Exception: continue
-        return msgs
+    # Normalize: unwrap {"type":"message","message":{...}} -> inner message
+    msgs = []
+    for m in raw_msgs:
+        if not isinstance(m, dict): continue
+        inner = m.get('message')
+        if isinstance(inner, dict) and inner.get('role'):
+            # Merge outer metadata into inner
+            merged = dict(inner)
+            if m.get('timestamp'): merged['timestamp'] = m['timestamp']
+            if not merged.get('timestamp'): merged['timestamp'] = inner.get('timestamp', '')
+            msgs.append(merged)
+        elif m.get('role'):
+            msgs.append(m)
+    return msgs
 
 def _build_session_index():
     """Build cached index of session files with parsed messages. Returns list of (fp, mtime, messages)."""
@@ -1494,9 +1507,25 @@ def _collect_activity(now):
     all_files = all_files[:50]
 
     def _session_label(fp, fn):
+        def _extract_text(content):
+            """Extract text from content which may be str or [{type:text, text:...}]."""
+            if isinstance(content, str): return content
+            if isinstance(content, list):
+                for item in content:
+                    if isinstance(item, dict) and item.get('type') == 'text':
+                        return item.get('text', '')
+            return ''
+        def _get_user_content(msg):
+            """Get (role, text) handling both flat and nested message formats."""
+            role = msg.get('role', '')
+            inner = msg.get('message', {})
+            if isinstance(inner, dict) and inner.get('role'):
+                role = inner['role']
+                return role, _extract_text(inner.get('content', msg.get('content', '')))
+            return role, _extract_text(msg.get('content', ''))
         try:
             with open(fp, 'r', errors='replace') as sf:
-                raw = sf.read(4096).strip()
+                raw = sf.read(16384).strip()
             if fn == 'sessions.json':
                 data = json.loads(raw)
                 for entry in data.values():
@@ -1504,14 +1533,43 @@ def _collect_activity(now):
                     if ':heartbeat' in str(entry): continue
                     lbl = entry.get('displayName', '') or entry.get('label', '')
                     if lbl: return lbl
-            elif raw.startswith('{') and not raw.startswith('{\n  "agent:'):
-                rec = json.loads(raw)
-                for m in rec.get('messages', []):
-                    if m.get('role') == 'user':
-                        c = m.get('content', '')
-                        if isinstance(c, str) and c.strip() and 'HEARTBEAT' not in c:
-                            return c.replace('\\n', ' ').replace('\n', ' ').strip()[:50]
+            elif raw.startswith('{'):
+                try:
+                    rec = json.loads(raw)
+                    _assistant_snippets = []
+                    for m in rec.get('messages', []):
+                        role, c = _get_user_content(m)
+                        if role == 'assistant' and c.strip():
+                            _assistant_snippets.append(c.strip()[:50])
+                        elif role == 'user' and c.strip() and 'HEARTBEAT' not in c:
+                            t = c.replace('\n', ' ').replace('\n', ' ').strip()
+                            if t.startswith(('Conversation info', 'Sender', '## Runtime', 'Inbound', '[gbrain')):
+                                continue
+                            return t[:50]
+                    if _assistant_snippets:
+                        return _assistant_snippets[-1]
+                except (json.JSONDecodeError, ValueError):
+                    # JSONL format - parse line by line
+                    _assistant_snippets = []
+                    for line in raw.split('\n'):
+                        if not line.strip(): continue
+                        try: msg = json.loads(line)
+                        except: continue
+                        if msg.get('type') == 'session':
+                            lbl = msg.get('label', '')
+                            if lbl: return lbl
+                        role, c = _get_user_content(msg)
+                        if role == 'assistant' and c.strip():
+                            _assistant_snippets.append(c.strip()[:50])
+                        elif role == 'user' and c.strip() and 'HEARTBEAT' not in c:
+                            t = c.replace('\n', ' ').replace('\n', ' ').strip()
+                            if t.startswith(('Conversation info', 'Sender', '## Runtime', 'Inbound', '[gbrain')):
+                                continue
+                            return t[:50]
+                    if _assistant_snippets:
+                        return _assistant_snippets[-1]
             else:
+                _assistant_snippets = []
                 for line in raw.split('\n'):
                     if not line.strip(): continue
                     try: msg = json.loads(line)
@@ -1519,10 +1577,17 @@ def _collect_activity(now):
                     if msg.get('type') == 'session':
                         lbl = msg.get('label', '')
                         if lbl: return lbl
-                    if msg.get('role') == 'user':
-                        c = msg.get('content', '')
-                        if isinstance(c, str) and c.strip() and 'HEARTBEAT' not in c:
-                            return c.replace('\\n', ' ').replace('\n', ' ').strip()[:50]
+                    role, c = _get_user_content(msg)
+                    if role == 'assistant' and c.strip():
+                        _assistant_snippets.append(c.strip()[:50])
+                    elif role == 'user' and c.strip() and 'HEARTBEAT' not in c:
+                        t = c.replace('\n', ' ').replace('\n', ' ').strip()
+                        if t.startswith(('Conversation info', 'Sender', '## Runtime', 'Inbound', '[gbrain')):
+                            continue
+                        return t[:50]
+                # Fallback: use last assistant message snippet
+                if _assistant_snippets:
+                    return _assistant_snippets[-1]
         except Exception as e:
             if 'Extra data' not in str(e):
                 logging.warning(f'activity read {fp}: {e}')
