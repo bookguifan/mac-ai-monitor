@@ -1,0 +1,46 @@
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mac AI Monitor v2.0</title>
+<link rel="stylesheet" href="static/css/style.css">
+</head>
+<body>
+
+<!-- Header -->
+<div class="hdr">
+  <div class="hdr-l">
+    <div class="logo">M</div>
+    <div class="title">Mac AI Monitor<span id="ver"></span></div>
+  </div>
+  <div class="hdr-r">
+    <span class="time" id="ts">—</span>
+    <span class="time" id="refresh-status" style="color:var(--text3);font-size:11px;min-width:90px;text-align:right"></span>
+    <button class="btn btn-auto" id="btn-auto" title="自动刷新: 开 (30s)" onclick="toggleAutoRefresh()"><span class="auto-indicator"></span>⟳ 自动刷新</button>
+    <button class="btn" id="btn-refresh" title="手动刷新 (读取缓存)">⟳ 刷新</button>
+  </div>
+</div>
+
+<!-- App -->
+<div class="main" id="app">
+  <div id="loading" style="padding:20px">
+    <div class="skeleton skeleton-title"></div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:16px">
+      <div class="skeleton skeleton-card" style="width:120px;height:60px"></div>
+      <div class="skeleton skeleton-card" style="width:120px;height:60px"></div>
+      <div class="skeleton skeleton-card" style="width:120px;height:60px"></div>
+      <div class="skeleton skeleton-card" style="width:120px;height:60px"></div>
+    </div>
+    <div class="skeleton skeleton-text" style="width:80%;margin-top:24px"></div>
+    <div class="skeleton skeleton-text" style="width:60%"></div>
+    <div class="skeleton skeleton-text" style="width:70%"></div>
+    <div style="color:var(--text3);margin-top:16px;font-size:12px">正在加载数据...</div>
+  </div>
+</div>
+
+<!-- Footer -->
+<div class="ft" id="ft"></div>
+
+<script src="static/js/app.js"></script>
+</body>
+</html>
