@@ -1022,7 +1022,7 @@ def _collect_gateway(shared, now, system_data, cpu_data, mem_data, disk_data, sw
     data = {}
 
     gateways = []; gw_ports = {}
-    _gw_kw = {'openclaw-gateway','hermes','autoclaw','jvs'}
+    _gw_kw = {'openclaw-gateway','hermes','autoclaw','jvs','qclaw'}
     try:
         for line in shared.lsof_all:
             if 'LISTEN' not in line: continue
