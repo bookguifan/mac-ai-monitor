@@ -16,9 +16,31 @@ function pct_c(p, w=70, c=85){
   return 'var(--green)';
 }
 
-function fmt_pct(n){ return (n||0).toFixed(1)+'%'; }
-function fmt_gb(n){ return ((n||0)).toFixed(1)+'GB'; }
-function fmt_mb(n){ return Math.round(n||0)+'MB'; }
+function fmt_pct(n){ return (n==null?0:n).toFixed(1)+'%'; }
+function fmt_gb(n){ return (n==null?0:n).toFixed(1)+'GB'; }
+function fmt_mb(n){ return (n==null?0:n).toFixed(1)+'MB'; }
+// Parse human size like '14Gi','233G','500M' to GB
+function parse_to_gb(s){
+  if(!s||typeof s!=='string') return null;
+  s=s.trim();
+  const m=s.match(/^([\d.]+)\s*(Gi?|Mi?|Ki?|Ti?|B)?$/i);
+  if(!m) return null;
+  const v=parseFloat(m[1]), u=(m[2]||'B').toLowerCase();
+  if(u==='t'||u==='ti') return v*1024;
+  if(u==='g'||u==='gi') return v;
+  if(u==='m'||u==='mi') return v/1024;
+  if(u==='k'||u==='ki') return v/1024/1024;
+  return null;
+}
+function fmt_size(s){
+  const gb=parse_to_gb(s);
+  return gb!=null? gb.toFixed(1)+'GB' : (s||'—');
+}
+function fmt_net(kbps){
+  if(kbps==null) return '0';
+  if(kbps>=1024) return (kbps/1024).toFixed(1)+'M';
+  return kbps.toFixed(0)+'K';
+}
 function fmt_age(m){
   if(m<1) return '刚刚';
   if(m<60) return m+'分钟前';
@@ -161,7 +183,7 @@ function render(d){
     <div class="qi ${disk_p>85?'danger':disk_p>70?'warn':'ok'}">
       <span class="qi-label">磁盘</span>
       <span class="qi-val" style="color:${pct_c(disk_p,70,85)}">${fmt_pct(disk_p)}</span>
-      <span class="qi-sub">${esc(disk.used)} / ${esc(disk.size)}</span>
+      <span class="qi-sub">${fmt_size(disk.used)} / ${fmt_size(disk.size)}</span>
     </div>
     <div class="qi ${swp_p>75?'danger':swp_p>50?'warn':'ok'}">
       <span class="qi-label">Swap</span>
@@ -175,13 +197,13 @@ function render(d){
     </div>
     <div class="qi">
       <span class="qi-label">网络 ↓↑</span>
-      <span class="qi-val">${net.rx_kbps||0}↓</span>
-      <span class="qi-sub">↑${esc(net.tx_kbps||'0')} KB/s</span>
+      <span class="qi-val">${fmt_net(net.rx_kbps)}↓ ${fmt_net(net.tx_kbps)}↑</span>
+      <span class="qi-sub">RX/TX</span>
     </div>
     <div class="qi">
       <span class="qi-label">磁盘IO</span>
-      <span class="qi-val">${(diskio.read_mbps||0).toFixed(1)}</span>
-      <span class="qi-sub">${(diskio.iops||0).toFixed(0)} IOPS · MB/s</span>
+      <span class="qi-val">${fmt_mb(diskio.read_mbps)}↓ ${fmt_mb(diskio.write_mbps)}↑</span>
+      <span class="qi-sub">${(diskio.iops||0).toFixed(0)} IOPS</span>
     </div>
     <div class="qi ${bat_p>=0&&bat_p<20?'danger':bat_p<50?'warn':'ok'}">
       <span class="qi-label">电池</span>
@@ -291,14 +313,14 @@ function render(d){
           ${sparkline((d.network_history||[]).map(n=>n.tx||0),180,28,'var(--accent)')}
         </div>
         <div style="display:flex;align-items:center;gap:6px;margin-top:12px;padding-top:8px;border-top:1px solid var(--border)">
-          <span style="font-size:11px;color:var(--text2)">磁盘IO:</span>
-          <span style="color:var(--accent);font-weight:600;font-size:12px">${(diskio.read_mbps||0).toFixed(1)} MB/s</span>
+          <span style="color:var(--text2);font-size:11px">磁盘IO:</span>
+          <span style="color:var(--accent);font-weight:600;font-size:12px">R ${fmt_mb(diskio.read_mbps)} W ${fmt_mb(diskio.write_mbps)}</span>
           <span style="color:var(--text3);font-size:10px">${(diskio.iops||0).toFixed(0)} IOPS</span>
         </div>
       </div>
     </div>
     <div class="card">
-      <div class="ch">存储卷 <span class="ch-r">${esc(disk.used)} / ${esc(disk.size)}</span></div>
+      <div class="ch">存储卷 <span class="ch-r">${fmt_size(disk.used)} / ${fmt_size(disk.size)}</span></div>
       <div class="cb">
         <div style="margin-bottom:12px">
           <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:4px">
@@ -629,7 +651,7 @@ function render(d){
         <span style="font-size:10px;color:var(--text3);margin-right:4px;line-height:2">热门工具:</span>
         ${tool_stats.slice(0,10).map(t=>`
         <span style="font-size:10px;background:var(--card-h);padding:2px 7px;border-radius:10px;color:var(--text2);cursor:pointer" title="${esc(t.skill||'')}" onclick="document.getElementById('skill-search').value='${esc(t.skill&&t.skill!=='内置工具'?t.skill:t.name)}';filterSkills()">
-          ${esc(t.name)}<span style="color:var(--accent);margin-left:3px">${t.count}</span>${t.skill?`<span style="color:var(--text3);font-size:9px;margin-left:2px">${esc(t.skill==='内置工具'?'内置':t.skill)}</span>`:''}
+          ${esc(t.name||'?')}<span style="color:var(--accent);margin-left:3px">${t.count||0}</span>${t.skill&&t.skill!=='内置工具'?`<span style="color:var(--text3);font-size:9px;margin-left:2px">${esc(t.skill)}</span>`:''}
         </span>`).join('')}
       </div>`:''}
       <div id="skill-content">
@@ -685,7 +707,7 @@ function render(d){
   _restoreCollapsed();
 
   // Footer
-  $('#ft').innerHTML=`<span>Mac AI Monitor v${esc(d.version||'?')}</span><span>${esc(d.timestamp||'')}</span><span>macOS</span><span class="ft-path" style="color:var(--text3);font-size:9px" title="运行文件路径">${esc(d.script_path||'')}</span>`;
+  $('#ft').innerHTML=`<span>Mac AI Monitor v${esc(d.version||'?')}</span><span>${esc(d.timestamp||'')}</span><span>macOS</span><span class="ft-path" style="color:var(--text3);font-size:9px" title="代码路径">${esc(d.script_path||'')}</span><span style="color:var(--text3);font-size:9px" title="文档">mac_ai_monitor/</span>`;
 
   // Remove loading
   $('#loading')?.remove();

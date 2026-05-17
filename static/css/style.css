@@ -3,7 +3,7 @@
   --bg:#0b0f1a;--card:#131a2e;--card-h:#19213a;
   --border:#1e2d45;--accent:#00cfff;--accent2:#7b61ff;
   --green:#3dd68c;--orange:#ffb347;--red:#ff6b6b;
-  --text:#e6edf3;--text2:#7d9ab5;--text3:#4a5a72;
+  --text:#e6edf3;--text2:#a8c4e0;--text3:#6b8299;
   --r:6px;--glow:0 0 20px rgba(0,207,255,.15);
 }
 body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'SF Pro',sans-serif;font-size:13px;line-height:1.5;min-height:100vh}
@@ -38,9 +38,9 @@ button{cursor:pointer;border:none;outline:none;font:inherit}
 .qi{background:var(--card);border:1px solid var(--border);border-radius:var(--r);
   padding:10px 12px;display:flex;flex-direction:column;gap:3px;transition:.2s}
 .qi:hover{border-color:var(--accent);box-shadow:var(--glow)}
-.qi-label{font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px}
+.qi-label{font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px}
 .qi-val{font-size:18px;font-weight:700;font-variant-numeric:tabular-nums}
-.qi-sub{font-size:10px;color:var(--text2)}
+.qi-sub{font-size:11px;color:var(--text2)}
 .danger .qi-val{color:var(--red)}
 .warn .qi-val{color:var(--orange)}
 .ok .qi-val{color:var(--green)}
@@ -213,7 +213,7 @@ button{cursor:pointer;border:none;outline:none;font:inherit}
   .qi{min-width:calc(50% - 8px)}
   .hbar{grid-template-columns:repeat(2,1fr)}
   .gauge-row{grid-template-columns:1fr 1fr}
-  .qi-label{font-size:10px}
+  .qi-label{font-size:11px}
   .qi-val{font-size:15px}
 }
 /* Large Phone */
@@ -231,11 +231,13 @@ button{cursor:pointer;border:none;outline:none;font:inherit}
 }
 /* Small Phone */
 @media(max-width:479px){
+  .qbar{grid-template-columns:1fr}
   .qi{min-width:100%}
   .ch{font-size:10px;padding:8px 10px}
   .gauge-card{padding:12px}
   .hdr-l .title{font-size:13px}
   .qi-val{font-size:16px}
+  .main{padding:8px 6px 16px}
 }
 
 /* Scrollable */
