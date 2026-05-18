@@ -1506,6 +1506,15 @@ def _collect_activity(now):
     all_files.sort(key=lambda x: os.path.getmtime(os.path.join(x[0], x[1])), reverse=True)
     all_files = all_files[:50]
 
+    def _extract_text_value(content):
+        """Extract text from content field (str or [{type:'text',text:'...'}])."""
+        if isinstance(content, str): return content
+        if isinstance(content, list):
+            for item in content:
+                if isinstance(item, dict) and item.get('type') == 'text':
+                    return item.get('text', '')
+        return ''
+
     def _session_label(fp, fn):
         def _extract_text(content):
             """Extract text from content which may be str or [{type:text, text:...}]."""
@@ -1612,11 +1621,43 @@ def _collect_activity(now):
             label = _session_label(fp, fn)
             if label: name = label
         name = name.replace('\\n', ' ').replace('\n', ' ')[:50]
+        # Build summary + detail for session expansion
+        summary = ''
+        detail = []
+        try:
+            msgs = _load_messages(fp) if not is_dir else []
+            user_msgs = [m for m in msgs if m.get('role') == 'user']
+            asst_msgs = [m for m in msgs if m.get('role') == 'assistant']
+            # Summary: last user message or last assistant snippet
+            for m in reversed(user_msgs):
+                c = _extract_text_value(m.get('content', ''))
+                if c.strip() and 'HEARTBEAT' not in c and not c.strip().startswith(('Conversation info', 'Sender', '## Runtime', 'Inbound', '[gbrain')):
+                    summary = c.strip()[:80]
+                    break
+            if not summary and asst_msgs:
+                c = _extract_text_value(asst_msgs[-1].get('content', ''))
+                if c.strip(): summary = c.strip()[:80]
+            # Detail: last 3 meaningful messages
+            shown = 0
+            for m in reversed(msgs):
+                if shown >= 3: break
+                role = m.get('role', '')
+                if role not in ('user', 'assistant'): continue
+                c = _extract_text_value(m.get('content', ''))
+                if not c.strip() or 'HEARTBEAT' in c: continue
+                if role == 'user' and c.strip().startswith(('Conversation info', 'Sender', '## Runtime', 'Inbound', '[gbrain')): continue
+                detail.insert(0, {'role': role, 'content': c.strip()[:120]})
+                shown += 1
+        except Exception:
+            pass
         md = datetime.datetime.fromtimestamp(mtime).date()
         grp = '今天' if md == today else ('昨天' if md == today - datetime.timedelta(days=1) else '更早')
-        activity.append({'name': name, 'age_m': int((now - mtime) // 60),
+        entry = {'name': name, 'age_m': int((now - mtime) // 60),
             'time': datetime.datetime.fromtimestamp(mtime).strftime('%H:%M'),
-            'group': grp, 'dir': 'JVS' if '.jvs' in ad else 'AutoClaw' if '.openclaw-autoclaw' in ad else 'Hermes' if '.qclaw-hermes' in ad else 'QClaw'})
+            'group': grp, 'dir': 'JVS' if '.jvs' in ad else 'AutoClaw' if '.openclaw-autoclaw' in ad else 'Hermes' if '.qclaw-hermes' in ad else 'QClaw'}
+        if summary: entry['summary'] = summary
+        if detail: entry['detail'] = detail
+        activity.append(entry)
     activity.sort(key=lambda x:(0 if x['group']=='今天' else (1 if x['group']=='昨天' else 2),-x['age_m']))
     return {'activity': activity}
 

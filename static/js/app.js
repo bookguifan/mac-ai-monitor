@@ -252,8 +252,8 @@ function render(d){
   const sys_disk_p=sys.disk_p||1;
   const sys_swp_p=sys.swp_p||1;
   const load1=cpu.load_1m||0;
-  const cores=sys.cpu_p||1;
-  const load_ratio=(load1/cores).toFixed(2);
+  const cores=cpu.cores||sys.cpu_p||1;
+  const load_ratio=cores>0?(load1/cores).toFixed(2):'—';
   const hs_c=hs>=80?'var(--green)':hs>=50?'var(--orange)':'var(--red)';
   const hs_parts=[]; // health score breakdown for tooltip
   if(!gw.count) hs_parts.push('无Gateway -35');
@@ -266,6 +266,7 @@ function render(d){
   const hs_tip=hs_parts.length?'影响因子:\n'+hs_parts.join('\n'):'所有指标正常';
   const gw_run=gw.count||0; const gw_idle=gw.idle_count||0;
   const cron_list=d.cron||[]; const cron_active=cron_list.filter(c=>c.enabled!==false).length;
+  const uptime=sys.uptime_str||'?';
   html+=`<div class="hbar"><div class="card hb-card">
       <div class="hb-num" style="color:${hs_c};cursor:help" title="${hs_tip}">${hs}</div>
       <div><div class="hb-label">健康评分</div><div class="hb-sub">${hs>=80?'状态良好':hs>=50?'需要关注':'异常'}</div></div>
@@ -290,7 +291,7 @@ function render(d){
       <div class="cb">
         <table class="tbl"><tbody>
           <tr><td class="k">主机名</td><td class="v">${esc(sys.hostname||'?')}</td></tr>
-          <tr><td class="k">CPU</td><td class="v">${esc(sys.cpu_name||'?')} <span style="color:var(--text3)">${sys.cpu_p||1}P/${sys.cpu_l||1}L核</span></td></tr>
+          <tr><td class="k">CPU</td><td class="v">${esc(sys.cpu_name||'?')} <span style="color:var(--text3)">${cpu.cores||sys.cpu_p||1}核</span>${cpu.temp!=null?` <span style="color:${cpu.temp>80?'var(--red)':cpu.temp>60?'var(--orange)':'var(--green)'}">${cpu.temp}°C</span>`:''}</td></tr>
           ${gpu_list.map(g=>`<tr><td class="k">GPU</td><td class="v">${esc(g)}</td></tr>`).join('')}
           <tr><td class="k">内存</td><td class="v">${sys.memory_gb||0} GB</td></tr>
           <tr><td class="k">系统</td><td class="v">${esc(sys.os_version||'macOS')}</td></tr>
@@ -302,19 +303,24 @@ function render(d){
       <div class="ch">网络 · ${esc(net.interface||'en0')}</div>
       <div class="cb">
         <table class="tbl"><tbody>
-          <tr><td class="k">下载</td><td class="v">${(net.rx_kbps||0).toFixed(1)} KB/s</td></tr>
-          <tr><td class="k">上传</td><td class="v">${(net.tx_kbps||0).toFixed(1)} KB/s</td></tr>
+          <tr><td class="k">下载</td><td class="v">${fmt_net(net.rx_kbps)}</td></tr>
+          <tr><td class="k">上传</td><td class="v">${fmt_net(net.tx_kbps)}</td></tr>
           <tr><td class="k">已连接</td><td class="v">${net.connections_est||0}</td></tr>
           <tr><td class="k">监听端口</td><td class="v">${net.connections_listen||0}</td></tr>
           <tr><td class="k">等待</td><td class="v">${net.connections_timewait||0}</td></tr>
         </tbody></table>
         <div style="margin-top:12px">
+          <div style="display:flex;gap:12px;margin-bottom:4px;font-size:10px">
+            <span style="color:var(--green)">● RX</span>
+            <span style="color:var(--accent)">● TX</span>
+          </div>
           ${sparkline((d.network_history||[]).map(n=>n.rx||0),180,28,'var(--green)')}
           ${sparkline((d.network_history||[]).map(n=>n.tx||0),180,28,'var(--accent)')}
         </div>
         <div style="display:flex;align-items:center;gap:6px;margin-top:12px;padding-top:8px;border-top:1px solid var(--border)">
           <span style="color:var(--text2);font-size:11px">磁盘IO:</span>
-          <span style="color:var(--accent);font-weight:600;font-size:12px">R ${fmt_mb(diskio.read_mbps)} W ${fmt_mb(diskio.write_mbps)}</span>
+          <span style="color:var(--green);font-weight:600;font-size:12px">R ${fmt_mb(diskio.read_mbps)}</span>
+          <span style="color:var(--accent);font-weight:600;font-size:12px">W ${fmt_mb(diskio.write_mbps)}</span>
           <span style="color:var(--text3);font-size:10px">${(diskio.iops||0).toFixed(0)} IOPS</span>
         </div>
       </div>

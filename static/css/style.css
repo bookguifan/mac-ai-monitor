@@ -149,6 +149,8 @@ button{cursor:pointer;border:none;outline:none;font:inherit}
 .act-item{cursor:pointer}.act-item:hover{background:var(--card-h)}
 .act-detail{display:none;padding:4px 8px 4px 60px;border-bottom:1px solid var(--border)}
 .act-expanded~.act-detail{display:block}
+.act-item::after{content:'▸';margin-left:auto;color:var(--text3);font-size:9px;transition:transform .15s}
+.act-item.act-expanded::after{transform:rotate(90deg)}
 .act-msg{font-size:10px;padding:2px 0;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .act-msg b{color:var(--text);margin-right:4px}
 .act-msg.act-user{color:var(--accent)}
