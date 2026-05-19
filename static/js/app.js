@@ -98,7 +98,10 @@ function _actIcon(dir){
 // ====== Fetch ======
 async function load(){
   try{
-    const r=await fetch('/api/data');
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    const r=await fetch('/api/data', {signal: controller.signal});
+    clearTimeout(timeoutId);
     if(!r.ok) throw new Error('HTTP '+r.status);
     _data=await r.json();
     try{ render(_data); }catch(e2){
@@ -491,6 +494,7 @@ function render(d){
             </span>
           </div>`:''}
           ${g.workspace&&g.workspace!='—'?`<div class="gw-item" style="flex:1"><span class="gw-k">工作区</span><span class="gw-v" style="color:var(--text3);font-size:10px">${esc(g.workspace)}</span></div>`:''}
+          <div class="gw-item"><button onclick="window.fetchGatewayLog()" style="padding:4px 12px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px">📋 查看日志</button></div>
         </div>`).join('')}
         ${idle_list.map(i=>`
         <div class="gw-card idle">
@@ -924,6 +928,45 @@ $('#btn-refresh').onclick = () => {
     silentLoad();
     startAutoRefresh();
   }
+};
+
+
+// ---- Gateway 日志弹窗 ----
+window.fetchGatewayLog = function() {
+  let modal = document.getElementById('gw-log-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'gw-log-modal';
+    modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;';
+    const box = document.createElement('div');
+    box.style.cssText = 'background:#1a1a2e;color:#e0e0e0;width:90%;max-width:800px;height:80%;border-radius:8px;display:flex;flex-direction:column;overflow:hidden;';
+    const hdr = document.createElement('div');
+    hdr.style.cssText = 'padding:12px 16px;background:#16213e;border-bottom:1px solid #333;display:flex;justify-content:space-between;align-items:center;';
+    hdr.innerHTML = '<span style="font-weight:bold;">📋 Gateway 日志</span>';
+    const btn = document.createElement('button');
+    btn.textContent = '×';
+    btn.style.cssText = 'background:none;border:none;color:#e0e0e0;font-size:20px;cursor:pointer;';
+    btn.onclick = () => { modal.style.display = 'none'; };
+    hdr.appendChild(btn);
+    const pre = document.createElement('pre');
+    pre.id = 'gw-log-content';
+    pre.style.cssText = 'flex:1;padding:16px;overflow:auto;font-size:12px;line-height:1.6;white-space:pre-wrap;word-break:break-all;';
+    box.appendChild(hdr);
+    box.appendChild(pre);
+    modal.appendChild(box);
+    document.body.appendChild(modal);
+  }
+  modal.style.display = 'flex';
+  const contentEl = document.getElementById('gw-log-content');
+  contentEl.textContent = '加载中...';
+  fetch('/api/gateway-log')
+    .then(r => r.json())
+    .then(data => {
+      contentEl.textContent = data.log || '暂无日志';
+    })
+    .catch(err => {
+      contentEl.textContent = '加载失败: ' + err.message;
+    });
 };
 
 // ---- 页面可见性控制（Tab切换停止Auto刷新） ----

@@ -4,7 +4,7 @@ Mac AI Monitor v2.0 — OpenClaw AI 服务监控面板
 纯 JS 渲染，手动刷新，单文件部署，零外部依赖。
 """
 
-import os, json, subprocess, re, time, datetime, logging, threading
+import os, json, subprocess, re, time, datetime, logging, gzip, threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from socketserver import ThreadingMixIn
 from collections import deque
@@ -19,7 +19,7 @@ CPU_TTL       = 60  # top -l 1 needs 60s sampling
 _cpu_cache    = {'data': None, 'ts': 0}
 SCRIPT_FILE   = os.path.basename(__file__)
 HOME          = os.path.expanduser('~')
-__version__   = '2.11.0'
+__version__   = '2.10.0'
 ALERT_FILE    = os.path.join(HOME, '.qclaw/.monitor_alerts.json')
 ALERT_COOLDOWN = 1800  # 30 分钟相同告警不重复
 
@@ -27,7 +27,7 @@ logging.basicConfig(filename='/tmp/mac_ai_monitor.log', level=logging.WARNING,
                     format='%(asctime)s %(levelname)s %(message)s')
 
 # ====== History ======
-_history = {k: deque(maxlen=HISTORY_SIZE) for k in ['cpu','mem','disk','swap','net']}
+_history = {k: deque(maxlen=HISTORY_SIZE) for k in ['cpu','memory','disk','swap','network']}
 _cache   = {'data': None, 'ts': 0}
 _net_s   = {'rx': 0, 'tx': 0, 'ts': 0}
 _gpu_cache_store = {'gpus': [], 'ts': 0}
@@ -116,7 +116,7 @@ def try_json(path):
     except Exception: return {}
 
 def send_alert(title, message, alert_key=''):
-    """macOS 系统通知 + 飞书 webhook 推送，带冷却机制避免频繁打扰"""
+    """macOS 系统通知，带冷却机制避免频繁打扰"""
     try:
         now = time.time()
         alerts = try_json(ALERT_FILE)
@@ -126,24 +126,6 @@ def send_alert(title, message, alert_key=''):
         # 发送系统通知
         cmd = f'''osascript -e 'display notification "{message}" with title "{title}"' '''
         subprocess.run(cmd, shell=True, capture_output=True, timeout=5)
-        
-        # 飞书 webhook 推送（需在 ~/.qclaw/.monitor_feishu_webhook 中配置 webhook URL）
-        _feishu_webhook = ''
-        _wh_file = os.path.join(HOME, '.qclaw/.monitor_feishu_webhook')
-        try:
-            if os.path.exists(_wh_file):
-                _feishu_webhook = open(_wh_file).read().strip()
-        except Exception: pass
-        if _feishu_webhook and _feishu_webhook.startswith('http'):
-            try:
-                import urllib.request
-                _payload = json.dumps({'title': title, 'text': message}).encode('utf-8')
-                _req = urllib.request.Request(_feishu_webhook, data=_payload, headers={'Content-Type': 'application/json'})
-                with urllib.request.urlopen(_req, timeout=5) as _resp: pass
-                logging.info(f'Feishu alert sent: {title}')
-            except Exception as _e:
-                logging.warning(f'Feishu alert failed: {_e}')
-        
         # 记录发送时间
         if alert_key:
             alerts[alert_key] = {'last_sent': now, 'message': message}
@@ -404,8 +386,6 @@ def collect_all():
                             'sys_pct': round(float(s.group(1)),1) if s else 0,
                             'idle_pct': round(float(i.group(1)),1) if i else 0,
                             'used_pct': round(((float(u.group(1)) if u else 0)+(float(s.group(1)) if s else 0)),1),
-                            'cores': data.get('system', {}).get('cpu_p', 1),
-                            'temp': None,
                         }
                         cpu_data.update(data.pop('cpu_load'))
                         _cpu_cache['data'] = cpu_data
@@ -437,7 +417,7 @@ def collect_all():
         spe=_v('Pages speculative'); pur=_v('Pages purgeable')
         total = hw_total  # use hw.memsize for accurate physical total
         avail = fre+ina+pur  # available = free+inactive+purgeable (exclude speculative)
-        data['mem'] = {
+        data['memory'] = {
             'active_gb':round(act,1),'wired_gb':round(wir,1),
             'free_gb':round(fre,1),'inactive_gb':round(ina,1),
             'speculative_gb':round(spe,1),'purgeable_gb':round(pur,1),
@@ -448,7 +428,7 @@ def collect_all():
         }
     except Exception as e:
         logging.warning(f'memory: {e}')
-        data['mem'] = {'used_pct':0,'active_gb':0,'wired_gb':0,'free_gb':0,
+        data['memory'] = {'used_pct':0,'active_gb':0,'wired_gb':0,'free_gb':0,
                          'inactive_gb':0,'speculative_gb':0,'purgeable_gb':0,
                          'available_gb':0,'total_gb':0,'avail_pct':0}
 
@@ -456,25 +436,13 @@ def collect_all():
     try:
         out = run_cmd(['df','-h','/'],5)
         p = out.split('\n')[1].split()
-        # 转换磁盘大小为 GB（P3-12: 支持 Gi/Mi/Ki 格式）
-        def _parse_to_gb(s):
-            s = s.strip()
-            if s[-1]=='G': return float(s[:-1])
-            if s[-1]=='T': return float(s[:-1])*1024
-            if s[-1]=='M': return float(s[:-1])/1024
-            if s[-1]=='K': return float(s[:-1])/1048576
-            return 0
-        disk_size_gb = _parse_to_gb(p[1])
-        disk_used_gb = _parse_to_gb(p[2])
-        disk_avail_gb = _parse_to_gb(p[3])
         data['disk'] = {
             'size':p[1],'used':p[2],'available':p[3],
-            'size_gb':round(disk_size_gb,1),'used_gb':round(disk_used_gb,1),'available_gb':round(disk_avail_gb,1),
             'used_pct':int(p[4].replace('%','')),'volumes':[],
         }
     except Exception as e:
         logging.warning(f'disk: {e}')
-        data['disk'] = {'size':'?','used':'?','available':'?','size_gb':0,'used_gb':0,'available_gb':0,'used_pct':0,'volumes':[]}
+        data['disk'] = {'size':'?','used':'?','available':'?','used_pct':0,'volumes':[]}
 
     # ---- Volumes (df-based, single pass) ----
     try:
@@ -535,7 +503,7 @@ def collect_all():
     except Exception: pass
 
     # ---- Network ----
-    data['net'] = {'interface':NET_IFACE,'rx_kbps':0,'tx_kbps':0,
+    data['network'] = {'interface':NET_IFACE,'rx_kbps':0,'tx_kbps':0,
                        'connections_est':0,'connections_listen':0,'connections_timewait':0}
     try:
         out = run_cmd(['netstat','-ib'],5)
@@ -548,8 +516,8 @@ def collect_all():
         else: rx=tx=0
         dt = now-_net_s['ts']
         if dt>0.5 and _net_s['rx']>0:
-            data['net']['rx_kbps'] = round((rx-_net_s['rx'])/dt/1024,1)
-            data['net']['tx_kbps'] = round((tx-_net_s['tx'])/dt/1024,1)
+            data['network']['rx_kbps'] = round((rx-_net_s['rx'])/dt/1024,1)
+            data['network']['tx_kbps'] = round((tx-_net_s['tx'])/dt/1024,1)
         _net_s.update({'rx':rx,'tx':tx,'ts':now})
     except Exception as e: logging.warning(f'network: {e}')
 
@@ -602,9 +570,9 @@ def collect_all():
     try:
         out = run_cmd(['netstat','-an'],5)
         for line in out.split('\n'):
-            if 'ESTABLISHED' in line: data['net']['connections_est']+=1
-            elif 'LISTEN' in line: data['net']['connections_listen']+=1
-            elif 'TIME_WAIT' in line: data['net']['connections_timewait']+=1
+            if 'ESTABLISHED' in line: data['network']['connections_est']+=1
+            elif 'LISTEN' in line: data['network']['connections_listen']+=1
+            elif 'TIME_WAIT' in line: data['network']['connections_timewait']+=1
     except Exception: pass
 
     # ---- Shared Process Table (single ps aux) ----
@@ -863,7 +831,7 @@ def collect_all():
     if not gateways: hs -= 35
     if idle: hs -= 10
     data_cpu = data.get('cpu', {})
-    data_mem = data.get('mem', {})
+    data_mem = data.get('memory', {})
     data_dsk = data.get('disk', {})
     data_swp = data.get('swap', {})
     if data_cpu.get('used_pct', 0) > 85: hs -= 10
@@ -902,14 +870,12 @@ def collect_all():
         ('应用备份', os.path.join(HOME,'Documents/app-backups'),'backup'),
     ]
     data['data_dirs'] = []
-    _dd_results = {}
-    _dd_paths = [(label,path,status) for label,path,status in dirs if os.path.isdir(path)]
-    _dd_notdir = [(label,path,status) for label,path,status in dirs if not os.path.isdir(path)]
-    # 并发 du（P0-1: ThreadPoolExecutor 并发，避免串行超时）
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-    def _du_one(label, path, status):
+    for label,path,status in dirs:
+        if not os.path.isdir(path):
+            data['data_dirs'].append({'label':label,'path':path.replace(HOME,'~'),'size':'—','status':status})
+            continue
         try:
-            r = subprocess.run(['du','-sk',path], capture_output=True, text=True, timeout=8)
+            r = subprocess.run(['du','-sk',path],capture_output=True,text=True,timeout=5)
             kb = int(r.stdout.split()[0]) if r.returncode==0 else 0
             size_s = f'{kb/1048576:.1f} GB' if kb>=1048576 else (f'{kb/1024:.0f} MB' if kb>0 else '—')
         except subprocess.TimeoutExpired:
@@ -918,22 +884,7 @@ def collect_all():
         except Exception as e:
             size_s = '—'
             logging.warning(f'du error {path}: {e}')
-        return (label, path, status, size_s)
-    with ThreadPoolExecutor(max_workers=3) as _exec:
-        _futures = [_exec.submit(_du_one, label, path, status) for label,path,status in _dd_paths]
-        for _f in as_completed(_futures):
-            try:
-                label, path, status, size_s = _f.result()
-                _dd_results[label] = {'label':label,'path':path.replace(HOME,'~'),'size':size_s,'status':status}
-            except Exception as _e:
-                logging.warning(f'du future error: {_e}')
-    for label,path,status in _dd_paths:
-        if label in _dd_results:
-            data['data_dirs'].append(_dd_results[label])
-        else:
-            data['data_dirs'].append({'label':label,'path':path.replace(HOME,'~'),'size':'—','status':status})
-    for label,path,status in _dd_notdir:
-        data['data_dirs'].append({'label':label,'path':path.replace(HOME,'~'),'size':'—','status':status})
+        data['data_dirs'].append({'label':label,'path':path.replace(HOME,'~'),'size':size_s,'status':status})
 
     # ---- Cron ----
     data['cron'] = []
@@ -1143,7 +1094,7 @@ def collect_all():
     # Merge call stats into skills (use improved mapping)
     # Direct tool→skill mapping for known tools
     _direct_map = {
-        'mem': 'memory', 'memory-1.0.2': 'memory',
+        'memory': 'memory', 'memory-1.0.2': 'memory',
         'session_search': 'session-search',
         'cronjob': 'cron-job',
         'terminal': 'terminal',
@@ -1218,7 +1169,7 @@ def collect_all():
                                     except Exception: pass
                 except Exception: continue
         except Exception: continue
-    data['sessions'] = session_stats
+    data['session_stats'] = session_stats
     
     # ---- Recent Errors ----
     data['recent_errors'] = tail_errors('/tmp/mac_ai_monitor.log', 20)
@@ -1328,14 +1279,14 @@ def collect_all():
     activity.sort(key=lambda x:(0 if x['group']=='今天' else (1 if x['group']=='昨天' else 2),-x['age_m']))
     data['activity'] = activity
     # ---- History ----
-    for k in ('cpu','mem','disk','swap'):
+    for k in ('cpu','memory','disk','swap'):
         v = data.get(k,{}).get('used_pct',0)
         _history[k].append(v)
         data[k]['history'] = list(_history[k])
     # Network history (TODO: track network rx/tx over time)
-    net_rx = data.get('net',{}).get('rx_kbps',0)
-    _history['net'].append({'rx': net_rx, 'tx': data['net'].get('tx_kbps',0)})
-    data['net_history'] = list(_history['net'])
+    net_rx = data.get('network',{}).get('rx_kbps',0)
+    _history['network'].append({'rx': net_rx, 'tx': data['network'].get('tx_kbps',0)})
+    data['network_history'] = list(_history['network'])
 
     data['timestamp'] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     return data
@@ -2402,8 +2353,8 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == '/health':
             # Health check endpoint
             try:
-                data = _cache.get('data') or {}
-                gw_count = data.get('gateway', {}).get('count', 0) if isinstance(data, dict) else 0
+                data = _cache.get('data', {})
+                gw_count = data.get('gateway', {}).get('count', 0)
                 status = 'ok' if gw_count > 0 else 'degraded'
                 code = 200 if status == 'ok' else 503
                 body = json.dumps({'status': status, 'version': __version__, 'gateway_count': gw_count}).encode()
@@ -2421,7 +2372,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(body)
         elif self.path == '/api/data':
             now = time.time()
-            if _cache.get('data') and now - _cache.get('ts', 0) < CACHE_TTL:
+            if _cache['data'] and now - _cache['ts'] < CACHE_TTL:
                 data = _cache['data']
             else:
                 try:
@@ -2453,38 +2404,6 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(body)
             except BrokenPipeError:
                 pass
-        elif self.path.startswith('/static/'):
-            # Serve static files
-            static_dir = os.path.dirname(os.path.abspath(__file__))
-            file_path = os.path.join(static_dir, self.path.lstrip('/'))
-            if os.path.isfile(file_path):
-                # Determine Content-Type
-                ext = os.path.splitext(file_path)[1].lower()
-                content_type = 'application/octet-stream'
-                if ext == '.css':
-                    content_type = 'text/css; charset=utf-8'
-                elif ext == '.js':
-                    content_type = 'application/javascript; charset=utf-8'
-                elif ext == '.html':
-                    content_type = 'text/html; charset=utf-8'
-                elif ext == '.json':
-                    content_type = 'application/json'
-                elif ext in ['.png', '.jpg', '.jpeg', '.gif', '.ico']:
-                    content_type = f'image/{ext[1:]}'
-                try:
-                    with open(file_path, 'rb') as f:
-                        body = f.read()
-                    self.send_response(200)
-                    self.send_header('Content-Type', content_type)
-                    self.send_header('Content-Length', len(body))
-                    self.end_headers()
-                    self.wfile.write(body)
-                except Exception as e:
-                    self.send_response(500)
-                    self.end_headers()
-            else:
-                self.send_response(404)
-                self.end_headers()
         else:
             self.send_response(404)
             self.end_headers()
@@ -2516,24 +2435,22 @@ if __name__ == '__main__':
     def _prewarm():
         import time
         time.sleep(3)
-        global _gpu_cache_store
+        global _gpu_cache_store, _now
         _now = time.time()
         try:
             import subprocess
             r = subprocess.run(['system_profiler','SPDisplaysDataType'],capture_output=True,text=True,timeout=20)
             if r.returncode==0:
-                gpus = []
+                _gpu_cache = {'gpus': [], 'ts': 0}
                 # 简单解析 GPU 信息
                 for line in r.stdout.split('\n'):
                     if 'Chip' in line or 'VRAM' in line:
                         if line.strip():
-                            gpus.append({'name':line.strip()[:40],'type':''})
-                if gpus:
-                    with _gpu_lock:
-                        _gpu_cache_store['gpus'] = gpus
-                        _gpu_cache_store['ts'] = _now
-        except Exception as e:
-            logging.warning(f'GPU prewarm: {e}')
+                            _gpu_cache['gpus'].append({'name':line.strip()[:40],'type':''})
+                if _gpu_cache['gpus']:
+                    _gpu_cache['ts'] = _now
+                    _gpu_cache_store.update(_gpu_cache)
+        except: pass
     threading.Thread(target=_prewarm, daemon=True).start()
     signal.signal(signal.SIGTERM, _shutdown)
     signal.signal(signal.SIGINT, _shutdown)
