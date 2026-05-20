@@ -19,11 +19,12 @@ CPU_TTL       = 60  # top -l 1 needs 60s sampling
 _cpu_cache    = {'data': None, 'ts': 0}
 SCRIPT_FILE   = os.path.basename(__file__)
 HOME          = os.path.expanduser('~')
+LOG_FILE      = os.path.join(HOME, '.qclaw', 'logs', 'monitor.log')
 __version__   = '2.11.0'
 ALERT_FILE    = os.path.join(HOME, '.qclaw/.monitor_alerts.json')
 ALERT_COOLDOWN = 1800  # 30 分钟相同告警不重复
 
-logging.basicConfig(filename='/tmp/mac_ai_monitor.log', level=logging.WARNING,
+logging.basicConfig(filename=LOG_FILE, level=logging.WARNING,
                     format='%(asctime)s %(levelname)s %(message)s')
 
 # ====== History ======
@@ -178,8 +179,8 @@ def tail_errors(log_path, lines=20):
 def get_log_sizes():
     """统计关键日志文件大小"""
     log_files = [
-        ('监控面板', '/tmp/mac_ai_monitor.log'),
-        ('监控面板 stdout', '/tmp/mac_ai_monitor_stdout.log'),
+        ('监控面板', LOG_FILE),
+        ('监控面板 stdout', os.path.join(HOME, '.qclaw', 'logs', 'monitor_stdout.log')),
     ]
     # 添加 OpenClaw 日志
     for base in ['.qclaw', '.qclaw-hermes', '.openclaw-autoclaw', '.jvs/.openclaw']:
@@ -1221,7 +1222,7 @@ def collect_all():
     data['sessions'] = session_stats
     
     # ---- Recent Errors ----
-    data['recent_errors'] = tail_errors('/tmp/mac_ai_monitor.log', 20)
+    data['recent_errors'] = tail_errors(LOG_FILE, 20)
 
     # ---- Activity ----
     adirs = [
@@ -2538,7 +2539,7 @@ if __name__ == '__main__':
     signal.signal(signal.SIGTERM, _shutdown)
     signal.signal(signal.SIGINT, _shutdown)
     print(f'http://127.0.0.1:{PORT}/')
-    print(f'Log: /tmp/mac_ai_monitor.log')
+    print(f'Log: {LOG_FILE}')
     try:
         server.serve_forever()
     except KeyboardInterrupt:

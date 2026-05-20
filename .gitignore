@@ -1,0 +1,18 @@
+__pycache__/
+*.py[cod]
+*.bak
+*.full
+
+# Logs
+logs/
+*.log
+
+# Runtime
+run/
+*.pid
+
+# Memory (开发记忆, 不提交)
+memory/
+
+# OS
+.DS_Store
