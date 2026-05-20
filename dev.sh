@@ -5,7 +5,9 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PY_FILE="$SCRIPT_DIR/mac_ai_monitor.py"
-PID_FILE="/tmp/mac_ai_monitor.pid"
+PID_FILE="$SCRIPT_DIR/run/mac_ai_monitor.pid"
+LOG_DIR="$SCRIPT_DIR/logs"
+STDOUT_LOG="$LOG_DIR/monitor_stdout.log"
 PORT=8849
 
 # 颜色
@@ -58,7 +60,8 @@ start() {
     fi
     log "启动服务..."
     cd "$SCRIPT_DIR"
-    nohup python3 "$PY_FILE" > /tmp/mam.log 2>&1 &
+    mkdir -p "$LOG_DIR"
+    nohup python3 "$PY_FILE" > "$STDOUT_LOG" 2>&1 &
     local new_pid=$!
     echo "$new_pid" > "$PID_FILE"
     sleep 1
@@ -71,8 +74,8 @@ start() {
         if curl -s --max-time 5 "http://127.0.0.1:$PORT/health" > /dev/null 2>&1; then
             ok "服务已就绪"
         else
-            err "启动失败! 查看 /tmp/mam.log"
-            tail -20 /tmp/mam.log
+            err "启动失败! 查看 $STDOUT_LOG"
+            tail -20 "$STDOUT_LOG"
             return 1
         fi
     fi
@@ -103,7 +106,7 @@ status() {
     echo ""
     echo "  端口: $PORT"
     echo "  日志: ~/.qclaw/logs/monitor.log"
-    echo "  stdout: /tmp/mam.log"
+    echo "  stdout: $STDOUT_LOG"
     echo "  前端: http://127.0.0.1:$PORT"
 }
 
@@ -114,8 +117,10 @@ show_log() {
         tail -50 "$log_file"
     else
         warn "日志文件不存在: $log_file"
-        echo "尝试: /tmp/mam.log"
-        [ -f /tmp/mam.log ] && tail -50 /tmp/mam.log
+        if [ -f "$STDOUT_LOG" ]; then
+            warn "尝试 stdout 日志..."
+            tail -50 "$STDOUT_LOG"
+        fi
     fi
 }
 

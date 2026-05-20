@@ -35,7 +35,7 @@ mac_ai_monitor/
 
 # 手动重启
 kill $(lsof -ti :8849) 2>/dev/null
-nohup python3 mac_ai_monitor.py > /tmp/mam.log 2>&1 &
+nohup python3 mac_ai_monitor.py > logs/monitor_stdout.log 2>&1 &
 
 # 验证
 curl -s http://127.0.0.1:8849/health

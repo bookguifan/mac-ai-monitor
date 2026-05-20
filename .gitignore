@@ -3,8 +3,8 @@ __pycache__/
 *.bak
 *.full
 
-# Logs
-logs/
+# Logs (忽略文件,保留目录)
+logs/*
 *.log
 
 # Runtime
