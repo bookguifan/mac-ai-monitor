@@ -10,7 +10,7 @@
 
 ```
 mac_ai_monitor/
-├── mac_ai_monitor.py      # 主程序 (2545行)
+├── mac_ai_monitor.py      # 主程序 (2556行)
 ├── index.html             # HTML 骨架 (46行, 引用 static/)
 ├── dev.sh                 # 开发工具链 (watch/restart/status/commit)
 ├── docs/
@@ -18,8 +18,8 @@ mac_ai_monitor/
 │   ├── QUICKSTART.md      # 5分钟入门
 │   └── API.md             # API 接口文档
 └── static/
-    ├── css/style.css      # 样式 (285行, 暗色主题, 响应式4断点)
-    └── js/app.js          # 前端逻辑 (986行, 渲染+刷新+交互)
+    ├── css/style.css      # 样式 (297行, 暗色主题, 响应式4断点)
+    └── js/app.js          # 前端逻辑 (1012行, 渲染+刷新+交互)
 
 系统文件:
   结构化日志: ~/.qclaw/logs/monitor.log (JSONL, 10MB×3轮转)
@@ -43,9 +43,72 @@ curl -s http://127.0.0.1:8849/health
 
 ---
 
+## 1.5 dev.sh 命令速查
+
+| 命令 | 功能 |
+|------|------|
+| `./dev.sh watch` | 文件监听 + 自动重启（需 fswatch） |
+| `./dev.sh restart` | 语法检查 + 重启 |
+| `./dev.sh start` | 启动服务 |
+| `./dev.sh stop` | 停止服务 |
+| `./dev.sh status` | 运行状态 + 健康检查 |
+| `./dev.sh health` | 详细指标 (CPU/内存/磁盘/GW) |
+| `./dev.sh lint` | Python 语法检查 |
+| `./dev.sh log` | 查看最近日志 |
+| `./dev.sh commit "msg"` | Git 提交 |
+
+---
+
+## 1.6 修改流程与检查清单
+
+### ⚠️ 重要：static/ 修改可能无效
+
+**问题**：Python 代码中的 `HTML_PAGE` 变量（L1344-2395）内联了 CSS 和 JS。
+如果服务返回 `HTML_PAGE`，修改 `static/css/style.css` 和 `static/js/app.js` **不会生效**。
+
+**排查**：检查 L2446 路由代码，确保优先读取 `index.html` 而非 `HTML_PAGE`。
+
+**验证**：
+```bash
+curl -s http://127.0.0.1:8849/ | grep -E "link.*css|script.*js"
+# 应输出: <link href="static/css/style.css">
+#       <script src="static/js/app.js"></script>
+```
+
+### 修改流程
+
+```bash
+# 1. grep 定位
+grep -n "关键词" mac_ai_monitor.py
+
+# 2. 编辑代码...
+
+# 3. 语法检查
+python3 -m py_compile mac_ai_monitor.py
+
+# 4. 重启服务
+./dev.sh restart
+
+# 5. 浏览器确认
+open http://127.0.0.1:8849
+
+# 6. Git 提交
+./dev.sh commit "fix: 描述"
+```
+
+### 必做检查清单
+
+- [ ] `python3 -m py_compile mac_ai_monitor.py` 语法通过
+- [ ] `./dev.sh status` 服务运行正常
+- [ ] `curl -s http://127.0.0.1:8849/api/data` API 正常返回
+- [ ] 浏览器打开页面，滚动检查各卡片显示正常
+- [ ] `git add -A && git commit` 备份
+
+---
+
 ## 2. 代码架构
 
-### mac_ai_monitor.py (2545行)
+### mac_ai_monitor.py (2556行)
 
 ```
 ====== Config ====== (L12-27)

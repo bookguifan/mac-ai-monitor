@@ -31,7 +31,7 @@ curl -s http://127.0.0.1:8849/health
 
 ```
 mac_ai_monitor/
-├── mac_ai_monitor.py      # 主程序 (2545行)
+├── mac_ai_monitor.py      # 主程序 (2556行)
 ├── index.html             # HTML 骨架 (46行)
 ├── dev.sh                 # 开发工具链 (watch/restart/status/commit)
 ├── docs/
@@ -39,8 +39,8 @@ mac_ai_monitor/
 │   ├── QUICKSTART.md      # 本文件
 │   └── API.md             # API 接口文档
 └── static/
-    ├── css/style.css      # 样式 (285行, 暗色主题, 响应式)
-    └── js/app.js          # 前端逻辑 (986行, 渲染+刷新+交互)
+    ├── css/style.css      # 样式 (297行, 暗色主题, 响应式)
+    └── js/app.js          # 前端逻辑 (1012行, 渲染+刷新+交互)
 
 日志: ~/.qclaw/logs/monitor.log (JSONL, 10MB×3轮转)
 缓存: ~/.qclaw/.monitor_persistent_cache.json
@@ -93,8 +93,8 @@ python3 -m py_compile mac_ai_monitor.py # 3. 语法检查
 |------|------|----------|
 | 版本号 | mac_ai_monitor.py L12 | `__version__='2.11.0'` |
 | 端口 | mac_ai_monitor.py L12 | `PORT=8849` |
-| 主缓存TTL | mac_ai_monitor.py L12 | `CACHE_TTL=180` |
-| GPU缓存TTL | mac_ai_monitor.py L12 | `GPU_CACHE_TTL=600` |
+| 主缓存TTL | mac_ai_monitor.py L12 | `CACHE_TTL=60` |
+| GPU缓存TTL | mac_ai_monitor.py L12 | `GPU_CACHE_TTL=60` |
 | 告警冷却 | mac_ai_monitor.py L12 | `ALERT_COOLDOWN=1800` |
 | 数据采集 | mac_ai_monitor.py L303 | `collect_all()` |
 | 活动解析 | mac_ai_monitor.py L1226 | `# ---- Activity ----` |
