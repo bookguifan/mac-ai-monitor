@@ -135,6 +135,7 @@ function render(d){
 
   // --- Quick Bar ---
   const sys=d.system||{};
+  const uptime=sys.uptime_str||'?';
   const cpu=d.cpu||{};
   const mem=d.memory||{};
   const disk=d.disk||{};
@@ -218,6 +219,11 @@ function render(d){
       <span class="qi-val">${sess.active_sessions||0}</span>
       <span class="qi-sub">${sess.total_messages||0} 消息</span>
     </div>
+    <div class="qi">
+      <span class="qi-label">运行时间</span>
+      <span class="qi-val">${uptime.split(' ')[0]||uptime}</span>
+      <span class="qi-sub">${uptime}</span>
+    </div>
   </div>`;
 
   // --- Gauges Row ---
@@ -269,7 +275,6 @@ function render(d){
   const hs_tip=hs_parts.length?'影响因子:\n'+hs_parts.join('\n'):'所有指标正常';
   const gw_run=gw.count||0; const gw_idle=gw.idle_count||0;
   const cron_list=d.cron||[]; const cron_active=cron_list.filter(c=>c.enabled!==false).length;
-  const uptime=sys.uptime_str||'?';
   html+=`<div class="hbar"><div class="card hb-card">
       <div class="hb-num" style="color:${hs_c};cursor:help" title="${hs_tip}">${hs}</div>
       <div><div class="hb-label">健康评分</div><div class="hb-sub">${hs>=80?'状态良好':hs>=50?'需要关注':'异常'}</div></div>
@@ -696,6 +701,24 @@ function render(d){
       </div>
     </div>
   </div>`;
+
+  // Footer: Project Structure
+  html+=`<footer class="footer">
+    <h3>📁 项目结构</h3>
+    <pre><code>mac_ai_monitor/
+├── <span class="struct-file">mac_ai_monitor.py</span>      # 主程序 (2545行)
+├── <span class="struct-file">index.html</span>             # HTML 骨架 (46行, 引用 static/)
+├── <span class="struct-file">dev.sh</span>                 # 开发工具链 (watch/restart/status/commit)
+├── <span class="struct-dir">docs/</span>
+│   ├── <span class="struct-file">README.md</span>          # 完整参考
+│   ├── <span class="struct-file">QUICKSTART.md</span>      # 5分钟入门
+│   └── <span class="struct-file">API.md</span>             # API 接口文档
+└── <span class="struct-dir">static/</span>
+    ├── <span class="struct-dir">css/</span>
+    │   └── <span class="struct-file">style.css</span>      # 样式 (285行)
+    └── <span class="struct-dir">js/</span>
+        └── <span class="struct-file">app.js</span>          # 前端逻辑 (986行)</code></pre>
+  </footer>`;
 
   $('#app').innerHTML = html;
 

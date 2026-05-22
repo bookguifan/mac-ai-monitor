@@ -284,3 +284,15 @@ button{cursor:pointer;border:none;outline:none;font:inherit}
 
 /* Hidden */
 .dn{display:none}
+
+/* Footer - Project Structure */
+.footer{margin-top:40px;padding:24px;background:var(--card);border-radius:8px;
+  border:1px solid var(--border);font-size:11px;color:var(--text3)}
+.footer h3{font-size:12px;color:var(--text2);margin:0 0 12px 0;font-weight:600}
+.footer pre{background:var(--bg);padding:16px;border-radius:6px;overflow-x:auto;
+  font-family:'SF Mono',Menlo,monospace;font-size:10px;line-height:1.6;
+  color:var(--text);border:1px solid var(--border)}
+.footer .struct-path{color:var(--accent);font-weight:600}
+.footer .struct-file{color:var(--green)}
+.footer .struct-dir{color:var(--text2);font-weight:500}
+.footer .struct-comment{color:var(--text3);font-style:italic}

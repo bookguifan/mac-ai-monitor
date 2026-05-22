@@ -106,10 +106,10 @@ def fmt_uptime(sec):
     d = int(sec//86400); r = int(sec%86400)
     h = r//3600; m = (r%3600)//60
     parts = []
-    if d: parts.append(f'{d}d')
-    if h: parts.append(f'{h}h')
-    if m: parts.append(f'{m}m')
-    return ' '.join(parts) or '0m'
+    if d: parts.append(f'{d}天')
+    if h: parts.append(f'{h}小时')
+    if m: parts.append(f'{m}分')
+    return ' '.join(parts) or '0分'
 
 def try_json(path):
     try:
@@ -1348,7 +1348,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Mac AI Monitor v2.0</title>
+<title>Mac AI Monitor v2.11.0 (2026-05-22 21:40)</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -2391,6 +2391,7 @@ $('#btn-refresh').onclick=()=>{ $('#app').innerHTML='<div class="loading">正在
 // Load
 load().then(() => { startAutoRefresh(); });
 </script>
+
 </body>
 </html>"""
 
@@ -2445,7 +2446,14 @@ class Handler(BaseHTTPRequestHandler):
             except BrokenPipeError:
                 pass
         elif self.path == '/' or self.path == '/index.html':
-            body = HTML_PAGE.encode('utf-8')
+            # Serve index.html (references external CSS/JS)
+            static_dir = os.path.dirname(os.path.abspath(__file__))
+            index_path = os.path.join(static_dir, 'index.html')
+            if os.path.isfile(index_path):
+                with open(index_path, 'r', encoding='utf-8') as f:
+                    body = f.read().encode('utf-8')
+            else:
+                body = HTML_PAGE.encode('utf-8')
             self.send_response(200)
             self.send_header('Content-Type', 'text/html; charset=utf-8')
             self.send_header('Content-Length', len(body))
