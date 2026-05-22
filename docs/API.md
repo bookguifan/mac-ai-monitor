@@ -1,6 +1,6 @@
 # Mac AI Monitor - API 文档
 
-> **版本**: v2.11.0 | **更新**: 2026-05-19
+> **版本**: v2.11.0 | **更新**: 2026-05-22
 
 ## 基准 URL
 
@@ -104,7 +104,7 @@ http://127.0.0.1:8849
 | `system.hostname` | string | 主机名 |
 | `system.os_version` | string | 操作系统版本 |
 | `system.uptime_sec` | number | 运行秒数 |
-| `system.uptime_str` | string | 运行时长 (如 "3d 5h 23m") |
+| `system.uptime_str` | string | 运行时长 (如 "5天 16小时 12分") |
 | `system.cpu_name` | string | CPU 型号 |
 | `system.cpu_p` | number | 物理核心数 |
 | `system.cpu_l` | number | 逻辑核心数 |
