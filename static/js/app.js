@@ -780,18 +780,22 @@ function render(d){
   html+=`<footer class="footer">
     <h3>📁 项目结构</h3>
     <pre><code>mac_ai_monitor/
-├── <span class="struct-file">mac_ai_monitor.py</span>      # 主程序 (2545行)
-├── <span class="struct-file">index.html</span>             # HTML 骨架 (46行, 引用 static/)
+├── <span class="struct-file">mac_ai_monitor.py</span>      # 主程序 (2654行)
+├── <span class="struct-file">index.html</span>             # HTML 骨架 (47行, 引用 static/)
 ├── <span class="struct-file">dev.sh</span>                 # 开发工具链 (watch/restart/status/commit)
 ├── <span class="struct-dir">docs/</span>
-│   ├── <span class="struct-file">README.md</span>          # 完整参考
-│   ├── <span class="struct-file">QUICKSTART.md</span>      # 5分钟入门
-│   └── <span class="struct-file">API.md</span>             # API 接口文档
+│   ├── <span class="struct-file">README.md</span>          # 项目首页/导航
+│   ├── <span class="struct-file">QUICKSTART.md</span>      # 修改流程/检查清单
+│   ├── <span class="struct-file">ARCHITECTURE.md</span>    # 架构/行号/缓存
+│   ├── <span class="struct-file">API.md</span>             # API 接口文档
+│   ├── <span class="struct-file">CHANGELOG.md</span>      # 版本历史
+│   └── <span class="struct-file">TROUBLESHOOTING.md</span># 排障手册
 └── <span class="struct-dir">static/</span>
     ├── <span class="struct-dir">css/</span>
-    │   └── <span class="struct-file">style.css</span>      # 样式 (285行)
+    │   └── <span class="struct-file">style.css</span>      # 样式 (311行)
     └── <span class="struct-dir">js/</span>
-        └── <span class="struct-file">app.js</span>          # 前端逻辑 (986行)</code></pre>
+        └── <span class="struct-file">app.js</span>          # 前端逻辑 (1143行)</code></pre>
+    <p style="font-size:10px;color:var(--text3);margin-top:6px">配置: ~/.qclaw/.monitor_alert_config.json · 日志: logs/</p>
   </footer>`;
 
   $('#app').innerHTML = html;
