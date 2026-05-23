@@ -20,7 +20,7 @@ _cpu_cache    = {'data': None, 'ts': 0}
 SCRIPT_FILE   = os.path.basename(__file__)
 HOME          = os.path.expanduser('~')
 LOG_FILE      = os.path.join(HOME, '.qclaw', 'logs', 'monitor.log')
-__version__   = '2.11.0'
+__version__   = '2.12.0'
 ALERT_FILE    = os.path.join(HOME, '.qclaw/.monitor_alerts.json')
 ALERT_COOLDOWN = 1800  # 30 分钟相同告警不重复
 

@@ -1,7 +1,7 @@
 # Mac AI Monitor
 
 > macOS AI 网关监控系统 — CPU/内存/磁盘/网络/Gateway/会话/技能 一览
-> **版本**: v2.11.0
+> **版本**: v2.12.0 | **更新**: 2026-05-23
 
 ---
 
@@ -59,17 +59,19 @@ mac_ai_monitor/
 
 ---
 
-## ⚠️ 重要：static/ 修改可能无效
+## ℹ️ 静态文件修改
 
-Python 代码中的 `HTML_PAGE` 变量（L1346-2396）内联了 CSS 和 JS。
-如果服务返回 `HTML_PAGE`，修改 `static/css/style.css` 和 `static/js/app.js` **不会生效**。
+服务优先使用 `index.html`（引用 `static/css/style.css` 和 `static/js/app.js`）。
+修改静态文件后，浏览器硬刷新（Cmd+Shift+R）即可生效。
 
-**验证方法**：
+**⚠️ 修改前验证**（详见 [QUICKSTART.md](QUICKSTART.md#修改前必读））：
 ```bash
 curl -s http://127.0.0.1:8849/ | grep -E "link.*css|script.*js"
-# ✅ 正确: <link href="static/css/style.css">
-# ❌ 错误: 页面中包含 <style> 或 <script> 内联标签
 ```
+- ✅ 有输出 → 静态文件模式，修改 `static/` 会生效
+- ❌ 无输出 → 内联 `HTML_PAGE` 模式，改 `static/` 无效
+
+**备用机制**：若 `index.html` 不存在，服务会 fallback 到内联 `HTML_PAGE`。
 
 ---
 
