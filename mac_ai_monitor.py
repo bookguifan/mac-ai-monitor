@@ -302,7 +302,19 @@ def extract_instances(configs):
 
 # ====== Main Data Collection ======
 def collect_all():
+    global _data
     now = time.time(); data = {}
+
+    # 部分成功策略：用上次缓存作为默认值，采集失败时用缓存兜底
+    if _cache.get("data"):
+        for key in ['cpu','mem','disk','swap','net','gateway','system',
+                     'disk_io','battery','session_stats','skills','activity',
+                     'cron','config_changes','log_stats','top_procs',
+                     'ports','volumes','history','data_dirs',
+                     'all_models','all_providers','port_conflicts']:
+            if key in _cache["data"]:
+                data[key] = _cache["data"][key]
+
     configs = discover_configs()
     instances, all_models, all_providers, port_conflicts = extract_instances(configs)
     data['all_models'] = all_models
@@ -2434,7 +2446,13 @@ class Handler(BaseHTTPRequestHandler):
                     _cache['ts'] = now
                 except Exception as e:
                     logging.error(f'collect_all: {e}')
-                    data = {'error': str(e), 'version': __version__}
+                    # 部分成功策略：返回上次缓存，附上本次异常信息
+                    if _cache.get('data'):
+                        data = dict(_cache['data'])
+                        data['error'] = str(e)
+                        data['timestamp'] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    else:
+                        data = {'error': str(e), 'version': __version__}
             body = json.dumps(data, ensure_ascii=False).encode('utf-8')
             self.send_response(200)
             self.send_header('Content-Type', 'application/json; charset=utf-8')
