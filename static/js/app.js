@@ -68,6 +68,40 @@ function sparkline(vals, w=200, h=30, color='#00cfff'){
   </svg>`;
 }
 
+// ====== uPlot Historical Chart ======
+function renderHistChart(d){
+  if(!window.uPlot||!d) return '';
+  const cpu=d.cpu?.history||[], mem=d.mem?.history||[], disk=d.disk?.history||[];
+  if(cpu.length<2) return '<div class="hist-panel"><div class="hist-card"><div class="hist-title">📈 历史趋势</div><div style="color:var(--text3);font-size:12px">暂无数据...</div></div></div>';
+  
+  const timestamps=Array.from({length:cpu.length},(_,i)=>i*5);// Assume 5s interval
+  const series=[
+    {label:'CPU',color:'var(--accent)'},
+    {label:'内存',color:'var(--green)'},
+    {label:'磁盘',color:'var(--orange)'}
+  ];
+  
+  const opts={
+    title:'',legend:{show:true,labels:series.map(s=>s.label)},
+    width:document.getElementById('hist-chart')?.offsetWidth||600,height:250,
+    scales:{x:{time:false},y:{auto:true,range:(min,max)=>[0,100]}},
+    series:[
+      {},
+      {label:'CPU',stroke:'var(--accent)',width:2,fill:'rgba(0,207,255,0.1)'},
+      {label:'内存',stroke:'var(--green)',width:2,fill:'rgba(61,214,140,0.1)'},
+      {label:'磁盘',stroke:'var(--orange)',width:2,fill:'rgba(255,179,71,0.1)'}
+    ],
+    axes:[{stroke:'var(--text3)',grid:{stroke:'var(--border)',width:1}},{stroke:'var(--text3)',grid:{stroke:'var(--border)',width:1},values:(u,v)=>v.toFixed(0)+'%'}]
+  };
+  
+  const data=[timestamps,cpu.map(c=>c.used_pct||0),mem.map(m=>m.used_pct||0),disk.map(d=>d.used_pct||0)];
+  
+  // Render into div
+  return `<div class="hist-panel"><div class="hist-card"><div class="hist-title">📈 历史趋势 (最近${cpu.length}个点)</div><div id="hist-chart"></div></div></div>`;
+}
+
+let _histChartInit=false;
+
 // ====== Donut Gauge SVG ======
 function donut(pct, size=100, stroke=8, color='#3dd68c'){
   const r=(size-stroke)/2; const c=2*Math.PI*r;
@@ -136,6 +170,19 @@ function render(d){
       qbar.parentNode.insertBefore(btn,qbar.nextSibling);
     }
     btn.textContent=isCollapsed?'⇪':'⇩';
+  }
+
+  // Historical chart placeholder
+  const main=document.getElementById('app');
+  if(main){
+    const gauges=document.querySelector('.gauge-row');
+    if(gauges&&!document.getElementById('hist-chart-insert')){
+      const insert=document.createElement('div');
+      insert.id='hist-chart-insert';
+      insert.className='hist-panel';
+      insert.innerHTML='<div class="hist-card"><div class="hist-title">📈 历史趋势</div><div id="hist-chart" style="width:100%;height:250px"></div></div>';
+      main.insertBefore(insert,gauges);
+    }
   }
 
   // Header
@@ -769,6 +816,38 @@ function render(d){
 
   // P2-5: Restore collapsible panels from localStorage
   _restoreCollapsed();
+
+  // Historical Chart (uPlot)
+  if(!_histChartInit){
+    const histEl=document.getElementById('hist-chart-insert');
+    if(histEl){
+      const container=document.createElement('div');
+      container.id='hist-chart';
+      container.style.width='100%';
+      container.style.height='250px';
+      histEl.appendChild(container);
+      if(window.uPlot && d.cpu?.history?.length>1){
+        const cpu=d.cpu.history.map(c=>c.used_pct||0);
+        const mem=d.mem.history.map(m=>m.used_pct||0);
+        const disk=d.disk.history.map(d=>d.used_pct||0);
+        const len=cpu.length;
+        const timestamps=Array.from({length:len},(_,i)=>i*5);
+        new uPlot({
+          title:'',legend:{show:true},
+          width:container.offsetWidth||600,height:230,
+          scales:{x:{time:false},y:{auto:true,range:[0,100]}},
+          series:[
+            {},
+            {label:'CPU','stroke':'var(--accent)',width:2,fill:'rgba(0,207,255,0.1)'},
+            {label:'内存','stroke':'var(--green)',width:2,fill:'rgba(61,214,140,0.1)'},
+            {label:'磁盘','stroke':'var(--orange)',width:2,fill:'rgba(255,179,71,0.1)'}
+          ],
+          axes:[{stroke:'var(--text3)',grid:{stroke:'var(--border)',width:1}},{stroke:'var(--text3)',grid:{stroke:'var(--border)',width:1},values:(u,v)=>v.toFixed(0)+'%'}]
+        }, [timestamps,cpu,mem,disk], container);
+        _histChartInit=true;
+      }
+    }
+  }
 
   // Footer
   $('#ft').innerHTML=`<span>Mac AI Monitor v${esc(d.version||'?')}</span><span>${esc(d.timestamp||'')}</span><span>macOS</span><span class="ft-path" style="color:var(--text3);font-size:9px" title="代码路径">${esc(d.script_path||'')}</span><span style="color:var(--text3);font-size:9px" title="文档">mac_ai_monitor/</span>`;
