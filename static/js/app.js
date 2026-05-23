@@ -211,7 +211,7 @@ function render(d){
   const disk=d.disk||{};
   const swp=d.swap||{};
   const gw=d.gateway||{};
-  const net=d.network||{};
+  const net=d.net||{};
   const bat=d.battery||{};
   const diskio=d.disk_io||{};
   const sess=d.session_stats||{};
