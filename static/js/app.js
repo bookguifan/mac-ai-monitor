@@ -973,7 +973,9 @@ let _autoInterval = null;
 let _countdown = null;
 let _lastRefreshMs = 0;
 
-const AUTO_INTERVAL_MS = 30000;    // 自动刷新: 30秒
+const REFRESH_OPTIONS = [{label:'5s',ms:5000},{label:'10s',ms:10000},{label:'15s',ms:15000},{label:'30s',ms:30000},{label:'60s',ms:60000}];
+let _refreshMs = parseInt(localStorage.getItem('monitor_refresh_ms')) || 30000;
+const AUTO_INTERVAL_MS = () => _refreshMs;
 const MANUAL_FETCH_LITE = true;     // Manual模式优先读取轻量端点
 
 // ---- Header 状态刷新 ----
@@ -981,7 +983,7 @@ function updateRefreshStatus() {
   const el = $('#refresh-status');
   if (!el) return;
   if (_autoRefresh) {
-    const left = Math.max(0, AUTO_INTERVAL_MS - (Date.now() - _lastRefreshMs));
+    const left = Math.max(0, _refreshMs - (Date.now() - _lastRefreshMs));
     const sec = Math.ceil(left / 1000);
     el.textContent = sec + 's';
     el.style.color = left < 10000 ? 'var(--orange)' : 'var(--text3)';
@@ -1000,7 +1002,7 @@ function toggleAutoRefresh() {
   const btn = $('#btn-auto');
   if (_autoRefresh) {
     btn.className = 'btn btn-auto';
-    btn.title = '自动刷新: 开 (每' + (AUTO_INTERVAL_MS / 1000) + 's)';
+    btn.title = '自动刷新: 开 (每' + (_refreshMs / 1000) + 's)';
     btn.innerHTML = '<span class="auto-indicator"></span>⟳ 自动刷新';
     startAutoRefresh();
     // 立即刷新一次
@@ -1017,7 +1019,7 @@ function toggleAutoRefresh() {
 function startAutoRefresh() {
   stopAutoRefresh();
   _lastRefreshMs = Date.now();
-  _autoInterval = setInterval(() => silentLoad(), AUTO_INTERVAL_MS);
+  _autoInterval = setInterval(() => silentLoad(), _refreshMs);
   // 每秒更新倒计时
   _countdown = setInterval(updateRefreshStatus, 1000);
 }
@@ -1047,6 +1049,29 @@ async function manualRefresh() {
   await load();
   // Manual模式下不自动重启轮询
 }
+
+// ---- 刷新间隔选择器 ----
+(function initRefreshSelector() {
+  const sel = $('#refresh-sel');
+  if (!sel) return;
+  REFRESH_OPTIONS.forEach(o => {
+    const opt = document.createElement('option');
+    opt.value = o.ms; opt.textContent = o.label;
+    if (o.ms === _refreshMs) opt.selected = true;
+    sel.appendChild(opt);
+  });
+  // If saved value not in options, add it
+  if (!REFRESH_OPTIONS.find(o => o.ms === _refreshMs)) {
+    const opt = document.createElement('option');
+    opt.value = _refreshMs; opt.textContent = (_refreshMs/1000)+'s'; opt.selected = true;
+    sel.insertBefore(opt, sel.firstChild);
+  }
+  sel.onchange = () => {
+    _refreshMs = parseInt(sel.value);
+    localStorage.setItem('monitor_refresh_ms', _refreshMs);
+    if (_autoRefresh) startAutoRefresh(); // restart with new interval
+  };
+})();
 
 // ---- 刷新按钮 ----
 $('#btn-refresh').onclick = () => {
@@ -1105,7 +1130,7 @@ document.addEventListener('visibilitychange', () => {
   } else if (!document.hidden && _autoRefresh) {
     // 回到页面时判断是否过期需要刷新
     const elapsed = Date.now() - _lastRefreshMs;
-    if (elapsed > AUTO_INTERVAL_MS) silentLoad();
+    if (elapsed > _refreshMs) silentLoad();
     startAutoRefresh();
   }
 });

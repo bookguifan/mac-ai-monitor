@@ -1699,6 +1699,7 @@ button{cursor:pointer;border:none;outline:none;font:inherit}
   </div>
   <div class="hdr-r">
     <span class="time" id="ts">—</span>
+    <select id="refresh-sel" class="btn" style="padding:2px 6px;font-size:12px;background:var(--card);color:var(--text);border:1px solid var(--border);border-radius:6px;cursor:pointer" title="刷新间隔"></select>
     <button class="btn btn-auto" id="btn-auto" title="自动刷新: 开" onclick="toggleAutoRefresh()"><span class="auto-indicator"></span>⟳ 自动刷新</button>
     <button class="btn" id="btn-refresh" title="手动刷新">⟳ 刷新</button>
   </div>
