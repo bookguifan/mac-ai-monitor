@@ -618,10 +618,12 @@ def collect_all():
                     except Exception: pass
         else: rx=tx=0
         dt = now-_net_s['ts']
-        if dt>0.5 and _net_s['rx']>0:
-            data['net']['rx_kbps'] = round((rx-_net_s['rx'])/dt/1024,1)
-            data['net']['tx_kbps'] = round((tx-_net_s['tx'])/dt/1024,1)
-        _net_s.update({'rx':rx,'tx':tx,'ts':now})
+        if dt>0.5:
+            if _net_s['rx']>0:
+                data['net']['rx_kbps'] = round((rx-_net_s['rx'])/dt/1024,1)
+                data['net']['tx_kbps'] = round((tx-_net_s['tx'])/dt/1024,1)
+            # Store current for next delta even on first call
+            _net_s.update({'rx':rx,'tx':tx,'ts':now})
     except Exception as e: logging.warning(f'network: {e}')
 
     # ---- Disk IO (iostat, macOS built-in) ----
