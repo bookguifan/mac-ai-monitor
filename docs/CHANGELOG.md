@@ -5,6 +5,16 @@
 
 ---
 
+## v2.14.0 (2026-05-23)
+
+### 文档优化
+- 版本号统一：ARCHITECTURE/API/README 同步至 v2.14.0
+- 行号校准：ARCHITECTURE.md 全部行号按实际代码重新标注
+- API.md：移除不存在的 /api/data/lite 端点，补回 /api/status 和 /api/gateway-log
+- 去重：README dev.sh 命令表改为链接引用 QUICKSTART
+- 拆分：从 QUICKSTART 拆出 TROUBLESHOOTING.md（回滚指南+常见问题+决策树）
+- 行数更新：mac_ai_monitor.py 2574行, style.css 311行, app.js 1114行
+
 ## v2.12.0 (2026-05-23)
 
 ### 文档优化

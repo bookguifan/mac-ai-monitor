@@ -244,22 +244,33 @@ curl -s http://127.0.0.1:8849/api/data | python3 -m json.tool
 
 | 任务 | 文件 | 关键标识 |
 |------|------|----------|
-| 版本号 | mac_ai_monitor.py L23 | `__version__='2.12.0'` |
-| 端口 | mac_ai_monitor.py L14 | `PORT=8849` |
+| 版本号 | mac_ai_monitor.py L23 | `__version__='2.14.0'` |
+| 端口 | mac_ai_monitor.py L13 | `PORT=8849` |
 | 缓存TTL | mac_ai_monitor.py L14-17 | `CACHE_TTL/GPU_CACHE_TTL` |
 | 告警冷却 | mac_ai_monitor.py L25 | `ALERT_COOLDOWN=1800` |
 | 数据采集 | mac_ai_monitor.py L304 | `collect_all()` |
-| 活动解析 | mac_ai_monitor.py L1239 | `# ---- Activity ----` |
-| HTTP路由 | mac_ai_monitor.py L2411 | `class Handler` |
+| 活动解析 | mac_ai_monitor.py L1227 | `# ---- Activity ----` |
+| HTTP路由 | mac_ai_monitor.py L2399 | `class Handler` |
 | 前端渲染 | static/js/app.js | `render(d)` |
 | CSS样式 | static/css/style.css | 暗色主题变量 |
-| GPU信息 | mac_ai_monitor.py L384 | `# ---- GPU ----` |
+| GPU信息 | mac_ai_monitor.py L372 | `# ---- GPU ----` |
 
 > 完整行号参考 → [ARCHITECTURE.md](ARCHITECTURE.md)
 
 ---
 
-回滚指南、常见问题、决策树 → [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
+## 🚨 回滚指南
+
+| 场景 | 操作 |
+|------|------|
+| 改坏了 `.py` 文件 | `git checkout -- mac_ai_monitor.py && ./dev.sh restart` |
+| 改坏了 `static/` 文件 | `git checkout -- static/css/style.css static/js/app.js` + 硬刷新 |
+| 想回到修改前（已commit） | `git log --oneline` 找到备份commit → `git revert <hash>` |
+| 修改进行到一半想放弃 | `git stash`（如之前 stash 了）或 `git checkout -- .` |
+| 版本号升错了 | `git checkout -- mac_ai_monitor.py` → 改回版本号 → 重新 commit |
+| 改完发现更多问题 | `git stash` 暂存改动 → 另开一个 commit 修新问题 → `git stash pop` |
+
+> 💡 大改动前务必 `./dev.sh commit "backup: ..."`，确保有回滚点。
 
 ---
 
@@ -295,7 +306,40 @@ curl -s http://127.0.0.1:8849/api/data | python3 -m json.tool
 
 ---
 
-回滚指南和更多排查 → [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
+## 🆘 常见问题
+
+| 症状 | 排查 |
+|------|------|
+| 页面空白/卡加载 | F12→Console 看报错，`curl /api/data` 检查返回 |
+| CSS/JS 修改不生效 | 检查是否用了内联 HTML_PAGE（见「修改前必读」） |
+| 首次API慢 | 正常，GPU预热~15s+CPU~5s，缓存后<100ms |
+| 活动显示"Session @" | 清缓存: `rm ~/.qclaw/.monitor_persistent_cache.json` 重启 |
+| 数据字段为None | `curl /api/data \| python3 -m json.tool` 查原始数据 |
+| 服务被signal 15杀 | 确认 `__main__` 有 `preexec_fn=os.setpgrp` |
+| 改坏了想回滚 | 见上方「回滚指南」 |
+| py_compile 报错 | 按报错行号修复语法错误，再重新 compile |
+| git commit 后想撤销 | `git reset --soft HEAD~1` 撤销 commit 保留改动 |
+
+---
+
+## 📊 流程选择决策树
+
+```
+要改什么？
+│
+├─ 改文案/警告/小Bug / 改 static/ 文件 ───→ 🟢 极简3步
+│                                        （static/ 改完无需重启）
+│
+├─ 改采集逻辑/新增字段/调整UI ────────────→ 🟡 标准6步
+│                                        （需用户确认方案）
+│
+└─ 新功能/新API/重构 ─────────────────────→ 🔴 完整8步
+         │                               （必须用户确认+备份+artifact）
+         ├─ 是否需要回滚保障？ ─────→ 是：先 git commit 备份
+         ├─ 是否影响API？ ────────→ 是：更新 docs/API.md
+         ├─ 是否改了行号？ ────────→ 是：更新 docs/ARCHITECTURE.md
+         └─ 是否改了流程本身？ ────→ 是：更新本文档（QUICKSTART.md）
+```
 
 ---
 

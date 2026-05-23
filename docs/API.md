@@ -1,6 +1,6 @@
 # Mac AI Monitor - API 文档
 
-> **版本**: v2.12.0 | **更新**: 2026-05-23
+> **版本**: v2.14.0 | **更新**: 2026-05-23
 
 ## 基准 URL
 
@@ -135,19 +135,16 @@ http://127.0.0.1:8849
 
 ---
 
-### `GET /api/data/lite`
+### `GET /static/*`
 
-轻量数据端点（60s 缓存），仅包含快速指标。Manual 模式下前端优先使用此端点。
+静态文件服务。返回 `static/` 目录下的文件。
 
-**响应字段：** cpu, mem, disk, swap, net, battery, gateway.count, version, system
-
----
+- `static/css/style.css` — 样式表 (text/css)
+- `static/js/app.js` — 前端脚本 (application/javascript)
 
 ### `GET /api/status`
 
 标准化健康状态，供 UptimeRobot 等外部监控使用。
-
----
 
 ### `GET /api/gateway-log`
 
@@ -159,12 +156,11 @@ Gateway 日志内容。
 
 ---
 
-### `GET /static/*`
+## ⚠️ 已移除端点
 
-静态文件服务。返回 `static/` 目录下的文件。
-
-- `static/css/style.css` — 样式表 (text/css)
-- `static/js/app.js` — 前端脚本 (application/javascript)
+| 端点 | 说明 | 移除原因 |
+|------|------|----------|
+| `GET /api/data/lite` | 轻量数据 | 代码中已不存在，功能合并入 /api/data |
 
 ---
 
@@ -183,7 +179,7 @@ Gateway 日志内容。
 
 - **Manual 模式**（默认）：点击刷新按钮读取缓存数据
 - **Auto 模式**：30s 自动刷新，Tab 隐藏时暂停
-- `/api/data` 缓存 60s，`/api/data/lite` 缓存 60s
+- `/api/data` 缓存 60s
 - 持久化缓存：服务重启后立即恢复上次数据（<30min 有效）
 
 ---

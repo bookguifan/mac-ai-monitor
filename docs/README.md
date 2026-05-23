@@ -1,7 +1,7 @@
 # Mac AI Monitor
 
 > macOS AI 网关监控系统 — CPU/内存/磁盘/网络/Gateway/会话/技能 一览
-> **版本**: v2.12.0 | **更新**: 2026-05-23
+> **版本**: v2.14.0 | **更新**: 2026-05-23
 
 ---
 
@@ -12,6 +12,7 @@
 | [QUICKSTART.md](QUICKSTART.md) | 5分钟入门：修改流程、检查清单、FAQ、快速定位 |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | 代码架构：行号级参考、数据采集、缓存策略、Gateway检测 |
 | [API.md](API.md) | API 接口：端点定义、响应字段、错误码 |
+| [TROUBLESHOOTING.md](TROUBLESHOOTING.md) | 故障排查：回滚指南、常见问题、决策树 |
 | [CHANGELOG.md](CHANGELOG.md) | 版本历史：每次发布的变更记录 |
 
 ---
@@ -36,7 +37,7 @@ nohup python3 mac_ai_monitor.py > logs/monitor_stdout.log 2>&1 &
 
 ```
 mac_ai_monitor/
-├── mac_ai_monitor.py      # 主程序 (2556行)
+├── mac_ai_monitor.py      # 主程序 (2574行)
 ├── index.html             # HTML 骨架 (46行)
 ├── dev.sh                 # 开发工具链 (watch/restart/status/commit)
 ├── docs/
@@ -46,8 +47,8 @@ mac_ai_monitor/
 │   ├── API.md             # API 接口文档
 │   └── CHANGELOG.md       # 版本历史
 └── static/
-    ├── css/style.css      # 样式 (297行, 暗色主题, 响应式4断点)
-    └── js/app.js          # 前端逻辑 (1012行, 渲染+刷新+交互)
+    ├── css/style.css      # 样式 (311行, 暗色主题, 响应式4断点)
+    └── js/app.js          # 前端逻辑 (1114行, 渲染+刷新+交互)
 
 系统文件:
   结构化日志:   ~/.qclaw/logs/monitor.log (JSONL, 10MB×3轮转)
@@ -77,17 +78,7 @@ curl -s http://127.0.0.1:8849/ | grep -E "link.*css|script.*js"
 
 ## 🔧 dev.sh 命令
 
-| 命令 | 功能 |
-|------|------|
-| `./dev.sh restart` | 语法检查 + 重启 |
-| `./dev.sh start` | 启动服务 |
-| `./dev.sh stop` | 停止服务 |
-| `./dev.sh watch` | 文件监听 + 自动重启（需 fswatch） |
-| `./dev.sh status` | 运行状态 + 健康检查 |
-| `./dev.sh health` | 详细指标 (CPU/内存/磁盘/GW) |
-| `./dev.sh lint` | Python 语法检查 |
-| `./dev.sh log` | 查看最近日志 |
-| `./dev.sh commit "msg"` | Git 提交 |
+详见 [QUICKSTART.md - dev.sh 命令参考](QUICKSTART.md#🛠️-devsh-命令参考)
 
 ---
 
@@ -98,7 +89,6 @@ curl -s http://127.0.0.1:8849/ | grep -E "link.*css|script.*js"
 | `/` | — | 仪表盘页面 |
 | `/health` | — | 健康状态 |
 | `/api/data` | 60s | 完整监控数据 |
-| `/api/data/lite` | 60s | 轻量数据 (CPU/内存/磁盘/GW/电池/网络) |
 | `/api/status` | 180s | 标准化健康状态 (供UptimeRobot) |
 | `/api/gateway-log` | — | Gateway 日志 (参数: lines, grep) |
 | `/static/*` | — | 静态文件 |
