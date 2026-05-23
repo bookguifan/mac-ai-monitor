@@ -7,6 +7,14 @@
 
 ## v2.14.0 (2026-05-23)
 
+### Bug 修复
+- 修复 disk.size_gb/used_gb/available_gb 始终为 0（`_parse_to_gb()` 不支持 Gi/Mi 格式，改用正则匹配）
+- 修复 GPU 采集阻塞主线程 ~10s（改为异步：缓存过期时返回旧数据 + 后台线程刷新）
+- 修复 sessions.total_tokens 始终为 0（支持 `message.usage` 嵌套结构和多字段名 `totalTokens`/`total_tokens`/`total`）
+- 修复前端历史趋势图不显示（后端 `net_history` → `network_history` 字段名修正）
+- 修复前端内存数据显示异常（前端 `d.memory` → `d.mem` 字段名修正）
+- 移除 `collect_all()` 中的死代码 `global _data`（导致 NameError 和服务退出）
+
 ### 文档优化
 - 版本号统一：ARCHITECTURE/API/README 同步至 v2.14.0
 - 行号校准：ARCHITECTURE.md 全部行号按实际代码重新标注

@@ -1391,7 +1391,7 @@ def collect_all():
     # Network history (TODO: track network rx/tx over time)
     net_rx = data.get('net',{}).get('rx_kbps',0)
     _history['net'].append({'rx': net_rx, 'tx': data['net'].get('tx_kbps',0)})
-    data['net_history'] = list(_history['net'])
+    data['network_history'] = list(_history['net'])
 
     data['timestamp'] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     return data

@@ -207,7 +207,7 @@ function render(d){
   const sys=d.system||{};
   const uptime=sys.uptime_str||'?';
   const cpu=d.cpu||{};
-  const mem=d.memory||{};
+  const mem=d.mem||{};
   const disk=d.disk||{};
   const swp=d.swap||{};
   const gw=d.gateway||{};
