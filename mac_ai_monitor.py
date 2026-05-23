@@ -23,6 +23,30 @@ LOG_FILE      = os.path.join(HOME, '.qclaw', 'logs', 'monitor.log')
 __version__   = '2.14.0'
 ALERT_FILE    = os.path.join(HOME, '.qclaw/.monitor_alerts.json')
 ALERT_COOLDOWN = 1800  # 30 分钟相同告警不重复
+ALERT_CONFIG_FILE = os.path.join(HOME, '.qclaw/.monitor_alert_config.json')
+
+# Default alert thresholds (overridable via ALERT_CONFIG_FILE)
+DEFAULT_THRESHOLDS = {
+    'cpu':  {'health': 85, 'alert': 90, 'warn': 60, 'danger': 80},
+    'mem':  {'health': 90, 'alert': 90, 'warn': 70, 'danger': 85},
+    'disk': {'health': 90, 'alert': 90, 'warn': 70, 'danger': 85},
+    'swap': {'health': 80, 'alert': 80, 'warn': 50, 'danger': 75},
+    'bat':  {'low': 20, 'warn': 50},
+    'volume': {'danger': 90}
+}
+
+def get_thresholds():
+    """Load alert thresholds from config file, fall back to defaults."""
+    cfg = try_json(ALERT_CONFIG_FILE)
+    if cfg and 'thresholds' in cfg:
+        merged = dict(DEFAULT_THRESHOLDS)
+        for k, v in cfg['thresholds'].items():
+            if k in merged:
+                merged[k] = {**merged[k], **v}
+            else:
+                merged[k] = v
+        return merged
+    return dict(DEFAULT_THRESHOLDS)
 
 logging.basicConfig(filename=LOG_FILE, level=logging.WARNING,
                     format='%(asctime)s %(levelname)s %(message)s')
@@ -909,14 +933,15 @@ def collect_all():
     hs = 100
     if not gateways: hs -= 35
     if idle: hs -= 10
+    th = get_thresholds()
     data_cpu = data.get('cpu', {})
     data_mem = data.get('mem', {})
     data_dsk = data.get('disk', {})
     data_swp = data.get('swap', {})
-    if data_cpu.get('used_pct', 0) > 85: hs -= 10
-    if data_mem.get('used_pct', 0) > 90: hs -= 15
-    if data_dsk.get('used_pct', 0) > 90: hs -= 10
-    if data_swp.get('used_pct', 0) > 80: hs -= 10
+    if data_cpu.get('used_pct', 0) > th['cpu']['health']: hs -= 10
+    if data_mem.get('used_pct', 0) > th['mem']['health']: hs -= 15
+    if data_dsk.get('used_pct', 0) > th['disk']['health']: hs -= 10
+    if data_swp.get('used_pct', 0) > th['swap']['health']: hs -= 10
     l1 = data_cpu.get('load_1m', 0)
     cores = data.get('system', {}).get('cpu_p', 1)
     if cores > 0 and l1 / cores > 2: hs -= 10
@@ -928,14 +953,19 @@ def collect_all():
     # ---- Trigger Alerts ----
     if not gateways:
         send_alert('🚨 Gateway 离线', '所有 Gateway 实例已停止运行', 'gw_offline')
-    if data_cpu.get('used_pct', 0) > 90:
+    if data_cpu.get('used_pct', 0) > th['cpu']['alert']:
         send_alert('⚠️ CPU 使用率过高', f'CPU 使用率 {data_cpu["used_pct"]}%', 'cpu_high')
-    if data_mem.get('used_pct', 0) > 90:
-        send_alert('⚠️ 内存使用率过高', f'内存使用率 {data_mem["used_pct"]}%', 'mem_high')
-    if data_dsk.get('used_pct', 0) > 90:
+    if data_mem.get('used_pct', 0) > th['mem']['alert']:
+        send_alert('⚠️ 内存使用率过高', f'内存 使用率 {data_mem["used_pct"]}%', 'mem_high')
+    if data_dsk.get('used_pct', 0) > th['disk']['alert']:
         send_alert('⚠️ 磁盘空间不足', f'磁盘使用率 {data_dsk["used_pct"]}%', 'disk_high')
-    if data_swp.get('used_pct', 0) > 80:
+    if data_swp.get('used_pct', 0) > th['swap']['alert']:
         send_alert('⚠️ Swap 使用过高', f'Swap 使用率 {data_swp["used_pct"]}%', 'swap_high')
+
+    # ---- Inject thresholds + normalize None fields ----
+    data['thresholds'] = th
+    data.setdefault('skills', {})
+    data.setdefault('processes', {'top_cpu': [], 'top_mem': []})
 
     # ---- Data Directories ----
     dirs = [
@@ -1810,17 +1840,21 @@ function render(d){
   const swp_p=swp.used_pct||0;
   const bat_p=bat.percent||0;
 
+  // Thresholds from backend config
+  const TH=d.thresholds||{};
+  const THc=TH.cpu||{},THm=TH.mem||{},THd=TH.disk||{},THs=TH.swap||{},THb=TH.bat||{},THv=TH.volume||{};
+
   // Alert counter
   const alerts=[];
-  if(cpu_p>80) alerts.push('CPU '+cpu_p+'%');
-  if(mem_p>85) alerts.push('内存 '+mem_p+'%');
-  if(disk_p>85) alerts.push('磁盘 '+disk_p+'%');
-  if(swp_p>75) alerts.push('Swap '+swp_p+'%');
-  if(bat_p>=0&&bat_p<20&&!bat.charging) alerts.push('电池 '+bat_p+'%');
+  if(cpu_p>(THc.danger||80)) alerts.push('CPU '+cpu_p+'%');
+  if(mem_p>(THm.danger||85)) alerts.push('内存 '+mem_p+'%');
+  if(disk_p>(THd.danger||85)) alerts.push('磁盘 '+disk_p+'%');
+  if(swp_p>(THs.danger||75)) alerts.push('Swap '+swp_p+'%');
+  if(bat_p>=0&&bat_p<(THb.low||20)&&!bat.charging) alerts.push('电池 '+bat_p+'%');
   if(!gw.count) alerts.push('无Gateway');
   if(gw.idle_count) alerts.push(gw.idle_count+'个闲置');
   // Check high-usage volumes
-  (disk.volumes||[]).forEach(v=>{const p=parseInt(v.pct);if(p>=90) alerts.push(v.name+' '+p+'%');});
+  (disk.volumes||[]).forEach(v=>{const p=parseInt(v.pct);if(p>=(THv.danger||90)) alerts.push(v.name+' '+p+'%');});
   const alert_n=alerts.length;
 
   html+=`<div class="qbar">
@@ -1829,24 +1863,24 @@ function render(d){
       <span class="qi-val" style="color:${alert_n>2?'var(--red)':alert_n>0?'var(--orange)':'var(--green)'}">${alert_n||'✓'}</span>
       <span class="qi-sub">${alert_n?alert_n+'项异常':'一切正常'}</span>
     </div>
-    <div class="qi ${pct_c(cpu_p,60,80)}">
+    <div class="qi ${pct_c(cpu_p,THc.warn||60,THc.danger||80)}">
       <span class="qi-label">CPU</span>
       <span class="qi-val" style="color:${pct_c(cpu_p)}">${fmt_pct(cpu_p)}</span>
       <span class="qi-sub">用户${fmt_pct(cpu.user_pct)} 系统${fmt_pct(cpu.sys_pct)}</span>
     </div>
-    <div class="qi ${mem_p>85?'danger':mem_p>70?'warn':'ok'}">
+    <div class="qi ${mem_p>(THm.danger||85)?'danger':mem_p>(THm.warn||70)?'warn':'ok'}">
       <span class="qi-label">内存</span>
-      <span class="qi-val" style="color:${pct_c(mem_p,70,85)}">${fmt_pct(mem_p)}</span>
+      <span class="qi-val" style="color:${pct_c(mem_p,THm.warn||70,THm.danger||85)}">${fmt_pct(mem_p)}</span>
       <span class="qi-sub">可用 ${fmt_gb(mem.available_gb||0)} / ${fmt_gb(mem.total_gb)}</span>
     </div>
-    <div class="qi ${disk_p>85?'danger':disk_p>70?'warn':'ok'}">
+    <div class="qi ${disk_p>(THd.danger||85)?'danger':disk_p>(THd.warn||70)?'warn':'ok'}">
       <span class="qi-label">磁盘</span>
-      <span class="qi-val" style="color:${pct_c(disk_p,70,85)}">${fmt_pct(disk_p)}</span>
+      <span class="qi-val" style="color:${pct_c(disk_p,THd.warn||70,THd.danger||85)}">${fmt_pct(disk_p)}</span>
       <span class="qi-sub">${esc(disk.used)} / ${esc(disk.size)}</span>
     </div>
-    <div class="qi ${swp_p>75?'danger':swp_p>50?'warn':'ok'}">
+    <div class="qi ${swp_p>(THs.danger||75)?'danger':swp_p>(THs.warn||50)?'warn':'ok'}">
       <span class="qi-label">Swap</span>
-      <span class="qi-val" style="color:${pct_c(swp_p,50,75)}">${fmt_pct(swp_p)}</span>
+      <span class="qi-val" style="color:${pct_c(swp_p,THs.warn||50,THs.danger||75)}">${fmt_pct(swp_p)}</span>
       <span class="qi-sub">${fmt_gb(swp.used_gb)} / ${fmt_gb(swp.total_gb)}</span>
     </div>
     <div class="qi ${gw.count>0?'ok':'danger'}">
@@ -1864,7 +1898,7 @@ function render(d){
       <span class="qi-val">${(diskio.read_mbps||0).toFixed(1)}</span>
       <span class="qi-sub">${(diskio.iops||0).toFixed(0)} IOPS · MB/s</span>
     </div>
-    <div class="qi ${bat_p>=0&&bat_p<20?'danger':bat_p<50?'warn':'ok'}">
+    <div class="qi ${bat_p>=0&&bat_p<(THb.low||20)?'danger':bat_p<(THb.warn||50)?'warn':'ok'}">
       <span class="qi-label">电池</span>
       <span class="qi-val">${bat_p>=0?bat_p+'%':'—'}</span>
       <span class="qi-sub">${esc(bat.status_cn||'—')}</span>
@@ -1882,24 +1916,24 @@ function render(d){
   const disk_hist=disk.history||[];
   html+=`<div class="gauge-row">
     <div class="gauge-card">
-      ${sparkline(cpu_hist, 220, 32, pct_c(cpu_p))}
-      <div class="g-svg">${donut(cpu_p,90,7,pct_c(cpu_p))}</div>
+      ${sparkline(cpu_hist, 220, 32, pct_c(cpu_p,THc.warn||60,THc.danger||80))}
+      <div class="g-svg">${donut(cpu_p,90,7,pct_c(cpu_p,THc.warn||60,THc.danger||80))}</div>
       <div class="g-label">CPU 使用率</div>
-      <div class="g-val" style="color:${pct_c(cpu_p)}">${fmt_pct(cpu_p)}</div>
+      <div class="g-val" style="color:${pct_c(cpu_p,THc.warn||60,THc.danger||80)}">${fmt_pct(cpu_p)}</div>
       <div class="g-sub">用户${fmt_pct(cpu.user_pct)} · 系统${fmt_pct(cpu.sys_pct)}</div>
     </div>
     <div class="gauge-card">
-      ${sparkline(mem_hist, 220, 32, pct_c(mem_p,70,85))}
-      <div class="g-svg">${donut(mem.avail_pct||0,90,7,pct_c(100-mem.avail_pct||0,70,85))}</div>
+      ${sparkline(mem_hist, 220, 32, pct_c(mem_p,THm.warn||70,THm.danger||85))}
+      <div class="g-svg">${donut(mem.avail_pct||0,90,7,pct_c(100-mem.avail_pct||0,THm.warn||70,THm.danger||85))}</div>
       <div class="g-label">内存可用</div>
-      <div class="g-val" style="color:${pct_c(100-mem.avail_pct||0,70,85)}">${fmt_pct(mem.avail_pct)}</div>
+      <div class="g-val" style="color:${pct_c(100-mem.avail_pct||0,THm.warn||70,THm.danger||85)}">${fmt_pct(mem.avail_pct)}</div>
       <div class="g-sub">可用 ${fmt_gb(mem.available_gb)} / ${fmt_gb(mem.total_gb)}</div>
     </div>
     <div class="gauge-card">
-      ${sparkline(disk_hist, 220, 32, pct_c(disk_p,70,85))}
-      <div class="g-svg">${donut(disk_p,90,7,pct_c(disk_p,70,85))}</div>
+      ${sparkline(disk_hist, 220, 32, pct_c(disk_p,THd.warn||70,THd.danger||85))}
+      <div class="g-svg">${donut(disk_p,90,7,pct_c(disk_p,THd.warn||70,THd.danger||85))}</div>
       <div class="g-label">磁盘使用</div>
-      <div class="g-val" style="color:${pct_c(disk_p,70,85)}">${disk_p}%</div>
+      <div class="g-val" style="color:${pct_c(disk_p,THd.warn||70,THd.danger||85)}">${disk_p}%</div>
       <div class="g-sub">可用 ${esc(disk.available||'—')}</div>
     </div>
   </div>`;
@@ -1984,10 +2018,10 @@ function render(d){
         <div style="margin-bottom:12px">
           <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:4px">
             <span style="color:var(--text2)">根卷</span>
-            <span style="color:${pct_c(disk_p,70,85)}">${disk_p}%</span>
+            <span style="color:${pct_c(disk_p,THd.warn||70,THd.danger||85)}">${disk_p}%</span>
           </div>
           <div style="height:6px;background:var(--border);border-radius:3px;overflow:hidden">
-            ${pbar(disk_p, pct_c(disk_p,70,85))}
+            ${pbar(disk_p, pct_c(disk_p,THd.warn||70,THd.danger||85))}
           </div>
         </div>
         ${(disk.volumes||[]).length===0?'<div style="color:var(--text3);padding:12px">暂无可用磁盘</div>':(disk.volumes||[]).slice(0,6).map(v=>`
@@ -2024,10 +2058,10 @@ function render(d){
         <div style="margin-top:10px">
           <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:4px">
             <span style="color:var(--text2)">Swap ${fmt_gb(swp.used_gb)} / ${fmt_gb(swp.total_gb)}</span>
-            <span style="color:${pct_c(swp_p,50,75)}">${fmt_pct(swp_p)}</span>
+            <span style="color:${pct_c(swp_p,THs.warn||50,THs.danger||75)}">${fmt_pct(swp_p)}</span>
           </div>
           <div style="height:6px;background:var(--border);border-radius:3px;overflow:hidden">
-            ${pbar(swp_p, pct_c(swp_p,50,75))}
+            ${pbar(swp_p, pct_c(swp_p,THs.warn||50,THs.danger||75))}
           </div>
         </div>
         ${sparkline(d.swap&&d.swap.history?d.swap.history:[],180,24,'var(--orange)')}
