@@ -16,7 +16,10 @@
   <div class="hdr-r">
     <span class="time" id="ts">—</span>
     <span class="time" id="refresh-status" style="color:var(--text3);font-size:11px;min-width:90px;text-align:right"></span>
+    <select id="refresh-sel" class="btn" style="padding:2px 6px;font-size:12px;background:var(--card);color:var(--text);border:1px solid var(--border);border-radius:6px;cursor:pointer" title="刷新间隔"></select>
     <button class="btn btn-auto" id="btn-auto" title="自动刷新: 开 (30s)" onclick="toggleAutoRefresh()"><span class="auto-indicator"></span>⟳ 自动刷新</button>
+    <button class="btn" id="btn-alerts" title="告警历史" onclick="showAlerts()">🔔</button>
+    <button class="btn" id="btn-export" title="导出数据" onclick="exportData()">📤</button>
     <button class="btn" id="btn-refresh" title="手动刷新 (读取缓存)">⟳ 刷新</button>
   </div>
 </div>

@@ -148,6 +148,44 @@ async function load(){
   }
 }
 
+// ---- 告警历史 ----
+async function showAlerts() {
+  let detEl = $('#alert-modal');
+  if (!detEl) {
+    detEl = document.createElement('div');
+    detEl.id = 'alert-modal';
+    detEl.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center';
+    document.body.appendChild(detEl);
+  }
+  detEl.style.display = 'flex';
+  detEl.innerHTML = '<div style="background:var(--card);border-radius:12px;padding:16px;max-width:420px;width:90%;max-height:80vh;overflow-y:auto"><h3 style="margin:0 0 12px">🔔 告警历史</h3><div style="color:var(--text3)">加载中...</div></div>';
+  try {
+    const r = await fetch('/api/alerts');
+    const j = await r.json();
+    const alerts = j.alerts || {};
+    const keys = Object.keys(alerts);
+    const inner = detEl.querySelector('div');
+    if (!keys.length) {
+      inner.innerHTML = '<h3 style="margin:0 0 12px">🔔 告警历史</h3><div style="color:var(--green)">✓ 无历史告警</div>';
+    } else {
+      inner.innerHTML = '<h3 style="margin:0 0 12px">🔔 告警历史</h3>' + keys.map(k => {
+        const a = alerts[k];
+        const t = a.last_sent ? new Date(a.last_sent*1000).toLocaleString('zh-CN') : '—';
+        return '<div style="padding:6px 0;border-bottom:1px solid var(--border)"><div style="font-weight:600;color:var(--orange)">' + esc(k.replace(/_/g,' ')) + '</div><div style="font-size:11px;color:var(--text2)">' + esc(a.message||'') + '</div><div style="font-size:10px;color:var(--text3)">' + t + '</div></div>';
+      }).join('');
+    }
+    inner.innerHTML += '<button class="btn" style="margin-top:12px;width:100%" onclick="document.getElementById(\'alert-modal\').style.display=\'none\'">关闭</button>';
+  } catch(e) {
+    detEl.querySelector('div').innerHTML = '<h3>🔔 告警历史</h3><span style="color:var(--red)">加载失败</span><br><button class="btn" style="margin-top:8px" onclick="document.getElementById(\'alert-modal\').style.display=\'none\'">关闭</button>';
+  }
+}
+
+// ---- 数据导出 ----
+function exportData() {
+  const fmt = confirm('确定导出？\n\n确定 = JSON 格式\n取消 = CSV 格式') ? 'json' : 'csv';
+  window.open('/api/export/' + fmt, '_blank');
+}
+
 function render(d){
   // Quick Bar toggle state (persist in sessionStorage)
   const qbar=document.querySelector('.qbar');
@@ -523,19 +561,20 @@ function render(d){
   const topc=(d.processes||{}).top_cpu||[];
   const topm=(d.processes||{}).top_mem||[];
   html+=`<div class="card card-collapsible" id="panel-processes">
-    <div class="ch">Top 进程</div>
+    <div class="ch">Top 进程 <span class=\"ch-r\">点击行查看详情</span></div>
     <div class="row row-2" style="margin:0;gap:0">
       <div class="scroll" style="max-height:240px">
         <table class="tbl"><thead><tr><th>进程</th><th class="n">PID</th><th class="n">CPU%</th><th class="n">文件</th></tr></thead><tbody>
-          ${topc.map(p=>`<tr><td>${esc(p.name||'?')}</td><td class="n" style="color:var(--text3)">${esc(p.pid)}</td><td class="n" style="color:${pct_c(p.cpu,50,80)}">${p.cpu.toFixed(1)}</td><td class="n" style="color:var(--text3)">${p.fd_count||0}</td></tr>`).join('')}
+          ${topc.map(p=>`<tr class=\"clickable-row\" data-pid=\"${p.pid}\" style=\"cursor:pointer\" title=\"点击查看PID ${p.pid}详情\"><td>${esc(p.name||'?')}</td><td class="n" style="color:var(--text3)">${esc(p.pid)}</td><td class="n" style="color:${pct_c(p.cpu,50,80)}">${p.cpu.toFixed(1)}</td><td class="n" style="color:var(--text3)">${p.fd_count||0}</td></tr>`).join('')}
         </tbody></table>
       </div>
       <div class="scroll" style="max-height:240px;border-left:1px solid var(--border)">
         <table class="tbl"><thead><tr><th>进程</th><th class="n">PID</th><th class="n">内存MB</th><th class="n">文件</th></tr></thead><tbody>
-          ${topm.map(p=>`<tr><td>${esc(p.name||'?')}</td><td class="n" style="color:var(--text3)">${esc(p.pid)}</td><td class="n">${p.rss_mb||0}MB</td><td class="n" style="color:var(--text3)">${p.fd_count||0}</td></tr>`).join('')}
+          ${topm.map(p=>`<tr class=\"clickable-row\" data-pid=\"${p.pid}\" style=\"cursor:pointer\" title=\"点击查看PID ${p.pid}详情\"><td>${esc(p.name||'?')}</td><td class="n" style="color:var(--text3)">${esc(p.pid)}</td><td class="n">${p.rss_mb||0}MB</td><td class="n" style="color:var(--text3)">${p.fd_count||0}</td></tr>`).join('')}
         </tbody></table>
       </div>
     </div>
+    <div id="proc-detail" style="display:none;padding:8px;border-top:1px solid var(--border);font-size:11px"></div>
   </div>`;
 
   // --- Gateway Instances (按软件名合并) ---
@@ -859,6 +898,37 @@ function render(d){
 
   // Footer
   $('#ft').innerHTML=`<span>Mac AI Monitor v${esc(d.version||'?')}</span><span>${esc(d.timestamp||'')}</span><span>macOS</span><span class="ft-path" style="color:var(--text3);font-size:9px" title="代码路径">${esc(d.script_path||'')}</span><span style="color:var(--text3);font-size:9px" title="文档">mac_ai_monitor/</span>`;
+
+  // Process row click handlers
+  $$('.clickable-row').forEach(tr => {
+    tr.onclick = async () => {
+      const pid = tr.dataset.pid;
+      const detEl = $('#proc-detail');
+      if (!detEl) return;
+      detEl.style.display = 'block';
+      detEl.innerHTML = '<span style="color:var(--text3)">加载PID '+pid+'...</span>';
+      try {
+        const r = await fetch('/api/process/'+pid);
+        const info = await r.json();
+        if (!info.found) { detEl.innerHTML='<span style="color:var(--orange)">PID '+pid+' 未找到</span>'; return; }
+        detEl.innerHTML = `
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px">
+            <div><b>PID</b> ${info.pid}</div>
+            <div><b>CPU</b> <span style="color:${pct_c(info.cpu_pct,50,80)}">${info.cpu_pct}%</span></div>
+            <div><b>MEM</b> <span style="color:${pct_c(info.mem_pct,50,80)}">${info.mem_pct}%</span></div>
+            <div><b>RSS</b> ${info.rss_mb}MB</div>
+            <div><b>VSZ</b> ${info.vsz_mb}MB</div>
+            <div><b>Nice</b> ${info.nice||'—'}</div>
+            <div><b>运行时长</b> ${info.elapsed||'—'}</div>
+            <div><b>打开文件</b> ${info.open_files??'—'}</div>
+            <div><b>网络连接</b> ${info.connections?.length||0}个</div>
+          </div>
+          <div style="margin-top:4px;color:var(--text2);word-break:break-all;font-size:10px">${esc(info.command||'')}</div>
+          ${info.connections?.length ? '<details style="margin-top:4px"><summary style="cursor:pointer;color:var(--accent);font-size:10px">网络连接详情</summary><pre style="font-size:9px;color:var(--text3)">'+info.connections.map(c=>esc(c)).join('\n')+'</pre></details>' : ''}
+        `;
+      } catch(e) { detEl.innerHTML='<span style="color:var(--red)">加载失败: '+esc(e.message)+'</span>'; }
+    };
+  });
 
   // Remove loading
   $('#loading')?.remove();

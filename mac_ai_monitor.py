@@ -1701,6 +1701,8 @@ button{cursor:pointer;border:none;outline:none;font:inherit}
     <span class="time" id="ts">—</span>
     <select id="refresh-sel" class="btn" style="padding:2px 6px;font-size:12px;background:var(--card);color:var(--text);border:1px solid var(--border);border-radius:6px;cursor:pointer" title="刷新间隔"></select>
     <button class="btn btn-auto" id="btn-auto" title="自动刷新: 开" onclick="toggleAutoRefresh()"><span class="auto-indicator"></span>⟳ 自动刷新</button>
+    <button class="btn" id="btn-alerts" title="告警历史" onclick="showAlerts()">🔔</button>
+    <button class="btn" id="btn-export" title="导出数据" onclick="exportData()">📤</button>
     <button class="btn" id="btn-refresh" title="手动刷新">⟳ 刷新</button>
   </div>
 </div>
@@ -2543,6 +2545,99 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(body)
             except BrokenPipeError:
                 pass
+        elif self.path == '/api/alerts':
+            # Return alert history from alerts file
+            alerts = try_json(ALERT_FILE) or {}
+            body = json.dumps({'alerts': alerts, 'thresholds': get_thresholds()}, ensure_ascii=False).encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.send_header('Cache-Control', 'no-cache')
+            self.end_headers()
+            try: self.wfile.write(body)
+            except BrokenPipeError: pass
+        elif self.path.startswith('/api/export'):
+            # Export current snapshot as JSON or CSV
+            fmt = 'json'
+            if 'csv' in self.path.lower(): fmt = 'csv'
+            data = _cache.get('data') or collect_all()
+            if fmt == 'csv':
+                import io, csv as csv_mod
+                buf = io.StringIO()
+                w = csv_mod.writer(buf)
+                # Flatten key metrics
+                w.writerow(['metric','value','unit'])
+                def row(k,v,u=''): w.writerow([k,v,u])
+                cpu = data.get('cpu',{})
+                mem = data.get('memory',{})
+                dsk = data.get('disk',{})
+                swp = data.get('swap',{})
+                bat = data.get('battery',{})
+                row('CPU Used', cpu.get('used_pct'), '%')
+                row('Memory Used', mem.get('used_pct'), '%')
+                row('Memory Used GB', mem.get('used_gb'), 'GB')
+                row('Disk Used', dsk.get('used_pct'), '%')
+                row('Disk Size GB', dsk.get('size_gb'), 'GB')
+                row('Swap Used', swp.get('used_pct'), '%')
+                row('Battery', bat.get('percent', -1), '%')
+                row('Battery Charging', bat.get('charging', False), '')
+                gw = data.get('gateway',{})
+                row('Gateway Count', gw.get('count', 0), '')
+                row('Health Score', data.get('health_score', 0), '')
+                # Top processes
+                for i,p in enumerate((data.get('processes') or {}).get('top_cpu',[])[:5]):
+                    row(f'TopCPU_{i+1}', f"{p.get('name','?')} ({p.get('cpu',0):.1f}%)", '')
+                for i,p in enumerate((data.get('processes') or {}).get('top_mem',[])[:5]):
+                    row(f'TopMem_{i+1}', f"{p.get('name','?')} ({p.get('rss_mb',0)}MB)", '')
+                body = buf.getvalue().encode('utf-8')
+                self.send_response(200)
+                self.send_header('Content-Type', 'text/csv; charset=utf-8')
+                self.send_header('Content-Disposition', 'attachment; filename=monitor_export.csv')
+            else:
+                body = json.dumps(data, ensure_ascii=False, indent=2).encode('utf-8')
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json; charset=utf-8')
+                self.send_header('Content-Disposition', 'attachment; filename=monitor_export.json')
+            self.send_header('Content-Length', len(body))
+            self.end_headers()
+            try: self.wfile.write(body)
+            except BrokenPipeError: pass
+        elif self.path.startswith('/api/process/'):
+            # Detail for a specific PID
+            try:
+                pid = int(self.path.split('/')[-1])
+            except ValueError:
+                self.send_response(400); self.end_headers(); return
+            detail = {'pid': pid, 'found': False}
+            try:
+                import subprocess as sp
+                out = sp.check_output(['ps','-p',str(pid),'-o','pid,pcpu,pmem,rss,vsz,nice,etime,command'], timeout=3).decode()
+                lines = out.strip().split('\n')
+                if len(lines) >= 2:
+                    parts = lines[1].split(None, 7)
+                    if len(parts) >= 8:
+                        detail = {'pid':pid,'found':True,
+                            'cpu_pct':float(parts[1]),'mem_pct':float(parts[2]),
+                            'rss_mb':int(parts[3])//1024,'vsz_mb':int(parts[4])//1024,
+                            'nice':parts[5],'elapsed':parts[6],'command':parts[7]}
+                # Open files count (macOS: lsof)
+                try:
+                    fd_out = sp.check_output(['lsof','-p',str(pid)], timeout=3).decode()
+                    detail['open_files'] = max(0, len(fd_out.strip().split('\n')) - 1)
+                except Exception: detail['open_files'] = None
+                # Network connections
+                try:
+                    net_out = sp.check_output(['lsof','-i','-P','-n','-p',str(pid)], timeout=3).decode()
+                    conns = [l.strip() for l in net_out.strip().split('\n')[1:] if l.strip()]
+                    detail['connections'] = conns[:20]
+                except Exception: detail['connections'] = []
+            except Exception as e:
+                detail['error'] = str(e)
+            body = json.dumps(detail, ensure_ascii=False).encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.end_headers()
+            try: self.wfile.write(body)
+            except BrokenPipeError: pass
         elif self.path == '/' or self.path == '/index.html':
             # Serve index.html (references external CSS/JS)
             static_dir = os.path.dirname(os.path.abspath(__file__))
