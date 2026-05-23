@@ -20,7 +20,7 @@ _cpu_cache    = {'data': None, 'ts': 0}
 SCRIPT_FILE   = os.path.basename(__file__)
 HOME          = os.path.expanduser('~')
 LOG_FILE      = os.path.join(HOME, '.qclaw', 'logs', 'monitor.log')
-__version__   = '2.12.0'
+__version__   = '2.14.0'
 ALERT_FILE    = os.path.join(HOME, '.qclaw/.monitor_alerts.json')
 ALERT_COOLDOWN = 1800  # 30 分钟相同告警不重复
 
@@ -302,7 +302,6 @@ def extract_instances(configs):
 
 # ====== Main Data Collection ======
 def collect_all():
-    global _data
     now = time.time(); data = {}
 
     # 部分成功策略：用上次缓存作为默认值，采集失败时用缓存兜底
@@ -384,9 +383,34 @@ def collect_all():
     # ---- GPU (cached 60s, with lock) ----
     _now = time.time()
     with _gpu_lock:
-        if _gpu_cache_store and (_now - _gpu_cache_store['ts']) < GPU_CACHE_TTL:
+        _cache_available = _gpu_cache_store and _gpu_cache_store.get('gpus')
+        _cache_fresh = _cache_available and (_now - _gpu_cache_store['ts']) < GPU_CACHE_TTL
+
+        if _cache_fresh:
             data['system']['gpu'] = list(_gpu_cache_store['gpus'])
+
+        elif _cache_available:
+            # 缓存过期但有旧数据：先返回旧数据，后台异步刷新
+            data['system']['gpu'] = list(_gpu_cache_store['gpus'])
+            def _gpu_refresh():
+                gpus = []
+                try:
+                    out = run_cmd(['system_profiler','SPDisplaysDataType'],10)
+                    for line in out.split('\n'):
+                        for kw in ['Chipset Model','芯片组型号','Chip','GPU','Graphics']:
+                            if kw in line:
+                                n = line.split(':')[-1].strip()
+                                if n: gpus.append(n)
+                                break
+                except Exception: pass
+                with _gpu_lock:
+                    if gpus:
+                        _gpu_cache_store['gpus'] = gpus
+                    _gpu_cache_store['ts'] = time.time()
+            threading.Thread(target=_gpu_refresh, daemon=True).start()
+
         else:
+            # 无缓存：首次阻塞采集
             gpus = []
             try:
                 out = run_cmd(['system_profiler','SPDisplaysDataType'],10)
@@ -396,8 +420,9 @@ def collect_all():
                         if n: gpus.append(n)
             except Exception: pass
             data['system']['gpu'] = gpus
-            _gpu_cache_store['gpus'] = gpus
-            _gpu_cache_store['ts'] = _now
+            with _gpu_lock:
+                _gpu_cache_store['gpus'] = gpus
+                _gpu_cache_store['ts'] = _now
 
     # ---- CPU Usage (sampled over 60s via top -l 1, with lock) ----
     try:
@@ -472,10 +497,19 @@ def collect_all():
         # 转换磁盘大小为 GB（P3-12: 支持 Gi/Mi/Ki 格式）
         def _parse_to_gb(s):
             s = s.strip()
-            if s[-1]=='G': return float(s[:-1])
-            if s[-1]=='T': return float(s[:-1])*1024
-            if s[-1]=='M': return float(s[:-1])/1024
-            if s[-1]=='K': return float(s[:-1])/1048576
+            # macOS df -h 使用 Gi/Mi/Ki/Ti 格式 (e.g. 233Gi, 14Gi)
+            upper = s.upper()
+            try:
+                if upper.endswith('TI'): return float(s[:-2]) * 1024
+                if upper.endswith('GI'): return float(s[:-2])
+                if upper.endswith('MI'): return float(s[:-2]) / 1024
+                if upper.endswith('KI'): return float(s[:-2]) / 1048576
+                # 无 i 后缀 (e.g. 1.5T, 500G, 200M)
+                if upper.endswith('T'): return float(s[:-1]) * 1024
+                if upper.endswith('G'): return float(s[:-1])
+                if upper.endswith('M'): return float(s[:-1]) / 1024
+                if upper.endswith('K'): return float(s[:-1]) / 1048576
+            except (ValueError, IndexError): pass
             return 0
         disk_size_gb = _parse_to_gb(p[1])
         disk_used_gb = _parse_to_gb(p[2])
@@ -1216,9 +1250,18 @@ def collect_all():
                     session_stats['total_messages'] += len(msgs)
                     for m in msgs:
                         if not isinstance(m, dict): continue
-                        usage = m.get('usage', {})
+                        # QClaw: usage 在 message.usage 内；Hermes: usage 在消息顶层
+                        if 'message' in m and isinstance(m.get('message'), dict):
+                            usage = m['message'].get('usage', {})
+                        else:
+                            usage = m.get('usage', {})
                         if isinstance(usage, dict):
-                            tokens = usage.get('total_tokens', 0) or usage.get('total', 0)
+                            tokens = 0
+                            for key in ['totalTokens','total_tokens','total']:
+                                v = usage.get(key)
+                                if v is not None:
+                                    tokens = v
+                                    break
                             if tokens:
                                 session_stats['total_tokens'] += tokens
                                 # Check if today
