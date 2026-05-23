@@ -45,6 +45,13 @@ button{cursor:pointer;border:none;outline:none;font:inherit}
 .warn .qi-val{color:var(--orange)}
 .ok .qi-val{color:var(--green)}
 
+/* Quick Bar Collapsed */
+.qbar.collapsed{grid-template-columns:repeat(4,1fr)}
+.qbar.collapsed .qi:nth-child(n+5){display:none}
+.qbar-toggle{position:absolute;right:8px;top:8px;z-index:10;padding:2px 8px;background:var(--card-h);border:1px solid var(--border);border-radius:var(--r);font-size:10px;color:var(--text2);cursor:pointer;opacity:.6;transition:.2s}
+.qbar-toggle:hover{opacity:1;border-color:var(--accent)}
+.qbar{position:relative}
+
 /* Row layouts */
 .row{display:grid;gap:12px;margin-bottom:12px}
 .row-2{grid-template-columns:1fr 1fr}

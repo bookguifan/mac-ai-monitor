@@ -115,6 +115,29 @@ async function load(){
 }
 
 function render(d){
+  // Quick Bar toggle state (persist in sessionStorage)
+  const qbar=document.querySelector('.qbar');
+  if(qbar){
+    const isCollapsed=sessionStorage.getItem('qbar-collapsed')==='1';
+    qbar.classList.toggle('collapsed',isCollapsed);
+    // Ensure toggle button exists
+    let btn=document.getElementById('qbar-toggle');
+    if(!btn){
+      btn=document.createElement('button');
+      btn.id='qbar-toggle';
+      btn.className='qbar-toggle';
+      btn.textContent='⇩';
+      btn.onclick=()=>{
+        qbar.classList.toggle('collapsed');
+        const c= qbar.classList.contains('collapsed');
+        sessionStorage.setItem('qbar-collapsed',c?'1':'0');
+        btn.textContent=c?'⇪':'⇩';
+      };
+      qbar.parentNode.insertBefore(btn,qbar.nextSibling);
+    }
+    btn.textContent=isCollapsed?'⇪':'⇩';
+  }
+
   // Header
   document.title = 'Mac AI Monitor v'+(d.version||'?');
   $('#ts').textContent = d.timestamp||'—';
