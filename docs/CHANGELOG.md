@@ -13,6 +13,15 @@
 - README.md: 版本号同步至 v2.12.0
 - CHANGELOG.md: 格式标准化（版本号标题+分类列表）
 
+### dev.sh 工具增强
+- commit(): 修复文件列表（index.html + docs/*.md + static/）
+- restart(): 新增自动验证（健康检查+静态文件模式）
+- watch(): 扩展监听范围（static/css + static/js）
+- 新增 verify 命令：一键验证服务状态
+- 新增 rollback 命令：回滚文件并重启
+- 新增 version 命令：代码/API版本号一致性检查
+- health(): 修复字段名 memory→mem
+
 ---
 
 ## v2.11.0 (2026-05-17 ~ 2026-05-22)

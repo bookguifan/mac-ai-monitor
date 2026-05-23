@@ -1,6 +1,6 @@
 #!/bin/bash
 # Mac AI Monitor 开发工具链
-# 用法: ./dev.sh [watch|restart|status|log|commit|lint|health]
+# 用法: ./dev.sh [watch|restart|status|log|commit|lint|health|verify|rollback|version]
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -86,6 +86,29 @@ restart() {
     lint || { err "语法错误, 不重启"; return 1; }
     stop
     start
+    
+    # 自动验证
+    sleep 2
+    echo ""
+    log "验证服务状态..."
+    
+    # 1. 健康检查
+    local health=$(curl -s --max-time 3 "http://127.0.0.1:$PORT/health" 2>/dev/null)
+    if echo "$health" | grep -q '"status"'; then
+        ok "健康检查: $(echo $health | python3 -c 'import json,sys; print(json.load(sys.stdin).get("status","?"))')"
+    else
+        err "健康检查失败"
+        return 1
+    fi
+    
+    # 2. 检查静态文件模式
+    local resp=$(curl -s "http://127.0.0.1:$PORT/" | head -20)
+    if echo "$resp" | grep -q 'link.*css\|script.*js'; then
+        ok "静态文件模式 (static/ 修改会生效)"
+    else
+        warn "内联 HTML_PAGE 模式 (static/ 修改不会生效)"
+        echo "  提示: 确认 index.html 存在且有权限读取"
+    fi
 }
 
 # 查看状态
@@ -128,7 +151,10 @@ show_log() {
 commit() {
     local msg="${1:-update}"
     cd "$SCRIPT_DIR"
-    git add mac_ai_monitor.py templates/index.html mac_ai_monitor.README.md dev.sh 2>/dev/null
+    # 添加所有常用修改文件
+    git add mac_ai_monitor.py index.html dev.sh \
+            static/css/style.css static/js/app.js \
+            docs/*.md 2>/dev/null
     git diff --cached --stat
     echo ""
     git commit -m "$msg"
@@ -138,7 +164,7 @@ commit() {
 # 文件监听 + 自动重启
 watch() {
     log "文件监听模式启动..."
-    log "监听: mac_ai_monitor.py, templates/index.html"
+    log "监听: mac_ai_monitor.py, index.html, static/css/, static/js/"
     log "修改后自动: 语法检查 → 重启服务"
     echo "─────────────────────────────────"
     echo ""
@@ -149,7 +175,9 @@ watch() {
     # macOS fswatch 检查, 不可用则 fallback 到轮询
     if command -v fswatch >/dev/null 2>&1; then
         log "使用 fswatch 监听文件变更..."
-        fswatch -o --latency 2 "$PY_FILE" "$SCRIPT_DIR/templates/index.html" | while read -r event; do
+        fswatch -o --latency 2 "$PY_FILE" "$SCRIPT_DIR/index.html" \
+                 "$SCRIPT_DIR/static/css/style.css" \
+                 "$SCRIPT_DIR/static/js/app.js" | while read -r event; do
             echo ""
             echo "─────────────────────────────────"
             log "检测到文件变更, 重新部署..."
@@ -161,19 +189,27 @@ watch() {
         warn "推荐安装: brew install fswatch"
         echo ""
         local py_hash=$(md5 -q "$PY_FILE" 2>/dev/null || md5sum "$PY_FILE" | cut -d' ' -f1)
-        local html_hash=$(md5 -q "$SCRIPT_DIR/templates/index.html" 2>/dev/null || md5sum "$SCRIPT_DIR/templates/index.html" | cut -d' ' -f1)
+        local html_hash=$(md5 -q "$SCRIPT_DIR/index.html" 2>/dev/null || md5sum "$SCRIPT_DIR/index.html" | cut -d' ' -f1)
+        local css_hash=$(md5 -q "$SCRIPT_DIR/static/css/style.css" 2>/dev/null || md5sum "$SCRIPT_DIR/static/css/style.css" | cut -d' ' -f1)
+        local js_hash=$(md5 -q "$SCRIPT_DIR/static/js/app.js" 2>/dev/null || md5sum "$SCRIPT_DIR/static/js/app.js" | cut -d' ' -f1)
         while true; do
             sleep 3
             local new_py=$(md5 -q "$PY_FILE" 2>/dev/null || md5sum "$PY_FILE" | cut -d' ' -f1)
-            local new_html=$(md5 -q "$SCRIPT_DIR/templates/index.html" 2>/dev/null || md5sum "$SCRIPT_DIR/templates/index.html" | cut -d' ' -f1)
-            if [ "$new_py" != "$py_hash" ] || [ "$new_html" != "$html_hash" ]; then
+            local new_html=$(md5 -q "$SCRIPT_DIR/index.html" 2>/dev/null || md5sum "$SCRIPT_DIR/index.html" | cut -d' ' -f1)
+            local new_css=$(md5 -q "$SCRIPT_DIR/static/css/style.css" 2>/dev/null || md5sum "$SCRIPT_DIR/static/css/style.css" | cut -d' ' -f1)
+            local new_js=$(md5 -q "$SCRIPT_DIR/static/js/app.js" 2>/dev/null || md5sum "$SCRIPT_DIR/static/js/app.js" | cut -d' ' -f1)
+            if [ "$new_py" != "$py_hash" ] || [ "$new_html" != "$html_hash" ] || [ "$new_css" != "$css_hash" ] || [ "$new_js" != "$js_hash" ]; then
                 echo ""
                 echo "─────────────────────────────────"
                 [ "$new_py" != "$py_hash" ] && log "mac_ai_monitor.py 已变更"
                 [ "$new_html" != "$html_hash" ] && log "index.html 已变更"
+                [ "$new_css" != "$css_hash" ] && log "style.css 已变更"
+                [ "$new_js" != "$js_hash" ] && log "app.js 已变更"
                 restart
                 py_hash="$new_py"
                 html_hash="$new_html"
+                css_hash="$new_css"
+                js_hash="$new_js"
                 echo ""
             fi
         done
@@ -192,15 +228,78 @@ health() {
 import sys, json
 d = json.load(sys.stdin)
 cpu = d.get('cpu', {})
-mem = d.get('memory', {})
+mem = d.get('mem', {})
 disk = d.get('disk', {})
 gw = d.get('gateway', {})
 print(f'CPU:    {cpu.get(\"used_pct\",0):.1f}%')
 print(f'内存:   {mem.get(\"used_pct\",0):.1f}% ({mem.get(\"available_gb\",0):.1f}GB可用)')
 print(f'磁盘:   {disk.get(\"used_pct\",0)}%')
-print(f'Gateway: {gw.get(\"count\",0)}运行 健康分{gw.get(\"health_score\",0)}')
+print(f'Gateway: {gw.get(\"count\",0)}运行')
 print(f'电池:   {d.get(\"battery\",{}).get(\"percent\",\"—\")}%')
 "
+}
+
+# 一键验证
+verify() {
+    echo "🔍 验证监控服务状态..."
+    
+    # 1. 进程
+    local pid=$(get_pid)
+    if [ -n "$pid" ]; then
+        ok "进程运行中 PID=$pid"
+    else
+        err "进程未运行"
+        return 1
+    fi
+    
+    # 2. 健康检查
+    local health=$(curl -s --max-time 3 "http://127.0.0.1:$PORT/health" 2>/dev/null)
+    if [ -n "$health" ]; then
+        ok "健康状态: $(echo $health | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("status","?")+" v"+d.get("version","?"))')"
+    else
+        err "健康检查失败"
+        return 1
+    fi
+    
+    # 3. 静态文件模式
+    local resp=$(curl -s "http://127.0.0.1:$PORT/" | head -20)
+    if echo "$resp" | grep -q 'link.*css\|script.*js'; then
+        ok "静态文件模式 (static/ 修改会生效)"
+    else
+        warn "内联模式 (static/ 修改不会生效)"
+    fi
+    
+    # 4. API 数据
+    local lite=$(curl -s "http://127.0.0.1:$PORT/api/data/lite" 2>/dev/null)
+    if [ -n "$lite" ]; then
+        ok "数据: CPU $(echo $lite | python3 -c 'import json,sys; d=json.load(sys.stdin); print(str(d.get("cpu",{}).get("used_pct",0))[:5]+"%")') | Mem $(echo $lite | python3 -c 'import json,sys; d=json.load(sys.stdin); print(str(d.get("mem",{}).get("used_pct",0))[:5]+"%")')"
+    else
+        warn "API数据获取失败"
+    fi
+}
+
+# 回滚
+rollback() {
+    local file="${1:-mac_ai_monitor.py}"
+    log "回滚 $file..."
+    git checkout -- "$file"
+    ok "已回滚"
+    restart
+}
+
+# 版本号检查
+version() {
+    # 代码版本号
+    local code_ver=$(grep "__version__" "$PY_FILE" | head -1 | sed "s/.*= *'//;s/'.*//")
+    # API 版本号
+    local api_ver=$(curl -s --max-time 3 "http://127.0.0.1:$PORT/health" 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("version","?"))' 2>/dev/null || echo "服务未运行")
+    echo "代码版本: $code_ver"
+    echo "API版本:  $api_ver"
+    if [ "$code_ver" != "$api_ver" ] && [ "$api_ver" != "服务未运行" ]; then
+        warn "版本不一致! 可能需要重启服务"
+    else
+        ok "版本一致"
+    fi
 }
 
 # 帮助
@@ -211,27 +310,33 @@ usage() {
     echo ""
     echo "命令:"
     echo "  watch     文件监听 + 自动重启 (推荐开发时使用)"
-    echo "  restart   语法检查 + 重启服务"
+    echo "  restart   语法检查 + 重启服务 + 自动验证"
     echo "  start     启动服务"
     echo "  stop      停止服务"
     echo "  status    查看运行状态"
     echo "  log       查看最近日志"
     echo "  lint      语法检查"
     echo "  health    健康检查(详细)"
-    echo "  commit    Git 提交 (git add + commit)"
+    echo "  verify    一键验证 (进程+健康+静态文件+API)"
+    echo "  rollback  回滚文件并重启 (默认 mac_ai_monitor.py)"
+    echo "  version   版本号检查 (代码 vs API)"
+    echo "  commit    Git 提交 (自动添加常用文件)"
     echo ""
 }
 
 # 主入口
 case "${1:-}" in
-    watch)   watch ;;
-    restart) restart ;;
-    start)   start ;;
-    stop)    stop ;;
-    status)  status ;;
-    log)     show_log "${2:-}" ;;
-    lint)    lint ;;
-    health)  health ;;
-    commit)  commit "${2:-}" ;;
-    *)       usage ;;
+    watch)    watch ;;
+    restart)  restart ;;
+    start)    start ;;
+    stop)     stop ;;
+    status)   status ;;
+    log)      show_log "${2:-}" ;;
+    lint)     lint ;;
+    health)   health ;;
+    verify)   verify ;;
+    rollback) rollback "${2:-}" ;;
+    version)  version ;;
+    commit)   commit "${2:-}" ;;
+    *)        usage ;;
 esac
