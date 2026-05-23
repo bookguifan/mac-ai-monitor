@@ -148,6 +148,20 @@ async function load(){
   }
 }
 
+// ---- 告警建议 ----
+function getAdvice(key) {
+  const map = {
+    cpu_high: '检查高CPU进程，考虑关闭资源密集型应用或优化代码',
+    mem_high: '关闭不需要的应用释放内存，检查是否有内存泄漏',
+    disk_high: '清理磁盘空间，删除缓存/日志/不需要的大文件',
+    swap_high: '增加物理内存或减少内存占用，Swap频繁会拖慢系统',
+    bat_low: '请连接电源适配器充电',
+    volume_high: '检查存储卷使用情况，清理不需要的文件',
+    gw_offline: 'Gateway服务未运行，请检查服务状态并重启'
+  };
+  return map[key] || '请检查系统状态';
+}
+
 // ---- 告警历史 ----
 async function showAlerts() {
   let detEl = $('#alert-modal');
@@ -168,10 +182,30 @@ async function showAlerts() {
     if (!keys.length) {
       inner.innerHTML = '<h3 style="margin:0 0 12px">🔔 告警历史</h3><div style="color:var(--green)">✓ 无历史告警</div>';
     } else {
+      const thresholds = j.thresholds || {};
       inner.innerHTML = '<h3 style="margin:0 0 12px">🔔 告警历史</h3>' + keys.map(k => {
         const a = alerts[k];
         const t = a.last_sent ? new Date(a.last_sent*1000).toLocaleString('zh-CN') : '—';
-        return '<div style="padding:6px 0;border-bottom:1px solid var(--border)"><div style="font-weight:600;color:var(--orange)">' + esc(k.replace(/_/g,' ')) + '</div><div style="font-size:11px;color:var(--text2)">' + esc(a.message||'') + '</div><div style="font-size:10px;color:var(--text3)">' + t + '</div></div>';
+        const age = a.last_sent ? Math.round((Date.now()/1000 - a.last_sent)/60) : null;
+        const ageStr = age !== null ? (age < 60 ? age + '分钟前' : Math.round(age/60) + '小时前') : '';
+        // Map alert key to threshold category
+        const catMap = {cpu_high:'cpu',mem_high:'mem',disk_high:'disk',swap_high:'swap',bat_low:'bat',volume_high:'volume',gw_offline:null};
+        const cat = catMap[k];
+        const th = cat && thresholds[cat] ? thresholds[cat] : null;
+        const thStr = th ? Object.entries(th).map(([l,v])=>l+': '+v).join(' / ') : '—';
+        const level = a.message && a.message.includes('98') ? 'danger' : 'warn';
+        const levelColor = level === 'danger' ? 'var(--red)' : 'var(--orange)';
+        const detailId = 'alert-det-' + k;
+        return '<div class="alert-row" style="padding:8px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .15s" onmouseenter="this.style.background=\'var(--card-h)\'" onmouseleave="this.style.background=\'transparent\'" onclick="var d=document.getElementById(\''+detailId+'\');d.style.display=d.style.display===\'none\'?\'block\':\'none\'">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center"><div style="font-weight:600;color:'+levelColor+'">⚠ ' + esc(k.replace(/_/g,' ')) + '</div><div style="font-size:10px;color:var(--text3)">'+ageStr+' ▾</div></div>' +
+          '<div style="font-size:11px;color:var(--text2);margin-top:2px">' + esc(a.message||'') + '</div>' +
+          '<div id="'+detailId+'" style="display:none;margin-top:8px;padding:8px;background:var(--bg);border-radius:8px;font-size:11px">' +
+            '<div style="margin-bottom:4px"><b>告警时间</b> '+t+'</div>' +
+            (th ? '<div style="margin-bottom:4px"><b>阈值配置</b> '+esc(thStr)+'</div>' : '') +
+            '<div style="margin-bottom:4px"><b>告警级别</b> <span style="color:'+levelColor+'">'+level.toUpperCase()+'</span></div>' +
+            '<div><b>建议</b> '+esc(getAdvice(k))+'</div>' +
+          '</div>' +
+        '</div>';
       }).join('');
     }
     inner.innerHTML += '<button class="btn" style="margin-top:12px;width:100%" onclick="document.getElementById(\'alert-modal\').style.display=\'none\'">关闭</button>';
