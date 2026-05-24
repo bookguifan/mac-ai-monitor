@@ -5,7 +5,7 @@
 
 ---
 
-## mac_ai_monitor.py (2753行)
+## mac_ai_monitor.py (2749行)
 
 ```
 ====== Config ====== (L14-27)
@@ -22,60 +22,62 @@
 
 ====== Config Discovery ====== (L211-301)
   L211  discover_configs()                       — 4路径配置发现
-  L228  get_config_hash(path)                    — MD5 变更检测
-  L237  extract_instances(configs)               — 实例/模型/Provider提取
+  L252  get_config_hash(path)                    — MD5 变更检测
+  L261  extract_instances(configs)               — 实例/模型/Provider提取
 
-====== Main Data Collection ====== (L304-1343)
-  L304  collect_all() — 单函数内完成所有数据采集
+====== Main Data Collection ====== (L328-1427)
+  L328  collect_all() — 单函数内完成所有数据采集
 
   数据块 (按 collect_all 中的注释标记):
-  L343   # ---- System Info ----           sysctl 单次合并 (hostname/os/cores/temp/mem/gpu)
-  L384   # ---- GPU (cached 60s, with lock) ----  system_profiler
-  L402   # ---- CPU Usage (sampled over 60s via top -l 1, with lock) ----
-  L437   # ---- Memory (vm_stat + hw.memsize for total) ----
-  L468   # ---- Disk ----                  df -h (含 size_gb/used_gb/available_gb 转换)
-  L492   # ---- Volumes (df-based, single pass) ----
-  L537   # ---- Battery ----               pmset
-  L550   # ---- Network ----               netstat -ib (首帧保护)
-  L569   # ---- Disk IO (iostat, macOS built-in) ----
-  L623   # ---- Shared Process Table (single ps aux) ----
-  L637   # ---- Top Processes (from shared ps_procs) ----
-  L658   # ---- Shared lsof (single call, reused by Ports + Gateway) ----
-  L669   # ---- Ports (from shared lsof_listen + ps_procs) ----
-  L689   # ---- Gateway Detection (from shared lsof_all) ----
-  L809   # ---- Gateway: 按软件名合并 + 性能指标 ----
-  L894   # ---- Trigger Alerts ----
-  L906   # ---- Data Directories ----
-  L951   # ---- Cron ----
-  L990   # ---- Skills ----
-  L1040  # ---- Skill Call Statistics (scan session files) ----
-  L1184  # ---- Session Token Statistics ----
-  L1236  # ---- Recent Errors ----
-  L1239  # ---- Activity ----
-  L1343  # ---- History ----
+  L366   # ---- System Info ----           sysctl 单次合并 (hostname/os/cores/temp/mem/gpu)
+  L407   # ---- GPU (cached 60s, with lock) ----  system_profiler
+  L451   # ---- CPU Usage (sampled over 60s via top -l 1, with lock) ----
+  L486   # ---- Memory (vm_stat + hw.memsize for total) ----
+  L517   # ---- Disk ----                  df -h (含 size_gb/used_gb/available_gb 转换)
+  L550   # ---- Volumes (df-based, single pass) ----
+  L595   # ---- Battery ----               pmset
+  L608   # ---- Network ----               netstat -ib (首帧保护)
+  L629   # ---- Disk IO (iostat, macOS built-in) ----
+  L683   # ---- Shared Process Table (single ps aux) ----
+  L697   # ---- Top Processes (from shared ps_procs) ----
+  L718   # ---- Shared lsof (single call, reused by Ports + Gateway) ----
+  L729   # ---- Ports (from shared lsof_listen + ps_procs) ----
+  L749   # ---- Gateway Detection (from shared lsof_all) ----
+  L869   # ---- Gateway: 按软件名合并 + 性能指标 ----
+  L955   # ---- Trigger Alerts ----
+  L972   # ---- Data Directories ----
+  L1017  # ---- Cron ----
+  L1056  # ---- Skills ----
+  L1106  # ---- Skill Call Statistics (scan session files) ----
+  L1250  # ---- Session Token Statistics ----
+  L1311  # ---- Recent Errors ----
+  L1314  # ---- Activity ----
+  L1418  # ---- History ----
 
-====== HTML Template ====== (L1358-2410)
+====== HTML Template ====== (L1433-2492)
   内联 HTML 模板 (备用，当前优先使用 index.html)
 
-====== HTTP Handler ====== (L2411-2526)
-  L2411  class Handler(BaseHTTPRequestHandler)
+====== HTTP Handler ====== (L2493-2705)
+  L2493  class Handler(BaseHTTPRequestHandler)
     /              → 优先 index.html (引用外部CSS/JS)，备用 HTML_PAGE
     /health        → 健康状态 (warming=200, degraded)
     /api/data      → 完整监控数据 (60s缓存)
     /api/status    → 标准化健康状态
     /api/gateway-log → Gateway 日志 (lines/grep 参数)
-    /static/*      → 静态文件服务 (CSS/JS/图片等)
-  L2527  class ThreadedServer — 多线程 HTTP 服务
+    /api/alerts    → 告警历史
+    /api/export/json|csv → 数据导出
+    /api/process/<pid> → 进程详情
+    /static/*      → 静态文件服务 (路径遍历防护)
+  L2706  class ThreadedServer — 多线程 HTTP 服务
 
-====== Main ====== (L2532-2574)
-  L2532  _shutdown() 信号处理
-  GPU 预热线程 (3s 后台启动)
-  preexec_fn=os.setpgrp — 独立进程组，避免 shell 退出时被 SIGTERM
+====== Main ====== (L2711-2749)
+  L2711  _shutdown() — 信号处理优雅退出
+  L2717  __main__ — 服务启动入口
 ```
 
 ---
 
-## index.html (47行)
+## index.html (50行)
 
 HTML 骨架，引用外部静态资源：
 - `<link href="static/css/style.css">` — 样式
@@ -138,7 +140,6 @@ diskutil list (1次) → 所有卷名
 collect_all()
   ├── configs, instances, all_models, all_providers    (Config Discovery)
   ├── config_changes, log_stats                         (直接)
-  ├── System Info (shared sysctl)                       — hostname/os/cores/temp/mem
   ├── GPU (60s缓存, with lock)                          — system_profiler
   ├── CPU (60s采样, top -l 1, with lock)               — top
   ├── Memory                                            — vm_stat + hw.memsize

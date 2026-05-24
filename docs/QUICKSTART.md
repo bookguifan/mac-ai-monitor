@@ -245,7 +245,7 @@ curl -s http://127.0.0.1:8849/api/data | python3 -m json.tool
 | 任务 | 文件 | 关键标识 |
 |------|------|----------|
 | 版本号 | mac_ai_monitor.py L23 | `__version__='2.14.0'` |
-| 端口 | mac_ai_monitor.py L14 | `PORT=8849` |
+| 端口 | mac_ai_monitor.py L13 | `PORT=8849` |
 | 缓存TTL | mac_ai_monitor.py L14-17 | `CACHE_TTL/GPU_CACHE_TTL` |
 | 告警冷却 | mac_ai_monitor.py L25 | `ALERT_COOLDOWN=1800` |
 | 数据采集 | mac_ai_monitor.py L328 | `collect_all()` |
@@ -253,7 +253,7 @@ curl -s http://127.0.0.1:8849/api/data | python3 -m json.tool
 | HTTP路由 | mac_ai_monitor.py L2493 | `class Handler` |
 | 前端渲染 | static/js/app.js | `render(d)` |
 | CSS样式 | static/css/style.css | 暗色主题变量 |
-| GPU信息 | mac_ai_monitor.py L384 | `# ---- GPU ----` |
+| GPU信息 | mac_ai_monitor.py L407 | `# ---- GPU ----` |
 
 > 完整行号参考 → [ARCHITECTURE.md](ARCHITECTURE.md)
 

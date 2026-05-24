@@ -13,11 +13,28 @@
 - 修复 sessions.total_tokens 始终为 0（支持 `message.usage` 嵌套结构和多字段名 `totalTokens`/`total_tokens`/`total`）
 - 修复前端历史趋势图不显示（后端 `net_history` → `network_history` 字段名修正）
 - 修复前端内存数据显示异常（前端 `d.memory` → `d.mem` 字段名修正）
+- 修复前端网络模块数据显示异常（前端 `d.network` → `d.net` 字段名修正）
+- 修复 `showAlerts()` 中 NameError: `TH` 未定义 → 改为调用 `get_thresholds()`
+- 修复 `get_thresholds()` 作用域问题 → 实现 deep merge 逻辑
+- 修复 bare except → `except Exception:`（3处）
 - 移除 `collect_all()` 中的死代码 `global _data`（导致 NameError 和服务退出）
+
+### 新功能
+- 告警阈值配置化（`~/.qclaw/.monitor_alert_config.json`，API 返回 `thresholds` 字段）
+- 自定义刷新间隔（5s/10s/15s/30s/60s 选择器，localStorage 持久化）
+- 告警历史面板（Header 🔔按钮，`/api/alerts` 端点，可点击展开详情）
+- 数据导出（Header 📤按钮，`/api/export/json` + `/api/export/csv`）
+- 进程详情查看（Top 进程行点击展开，`/api/process/<pid>`）
+
+### 安全加固
+- 路径遍历防护：`static_dir` 改为 `static/` 子目录，越界请求返回 403
+- PID 校验：`/api/process/<pid>` 范围检查 1≤pid≤999999
 
 ### 文档优化
 - 版本号统一：ARCHITECTURE/API/README 同步至 v2.14.0
 - 行号校准：ARCHITECTURE.md 全部行号按实际代码重新标注
+- API.md 新增 4 个端点文档（alerts/export/process）
+- 新增 TROUBLESHOOTING.md 回滚指南
 - API.md：移除不存在的 /api/data/lite 端点，补回 /api/status 和 /api/gateway-log
 - 去重：README dev.sh 命令表改为链接引用 QUICKSTART
 - 拆分：从 QUICKSTART 拆出 TROUBLESHOOTING.md（回滚指南+常见问题+决策树）
