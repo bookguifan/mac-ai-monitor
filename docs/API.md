@@ -189,3 +189,60 @@ Gateway 日志内容。
 - macOS 系统通知 + 飞书 Webhook 推送
 - 30min 冷却机制避免频繁打扰
 - 飞书配置：将 Webhook URL 写入 `~/.qclaw/.monitor_feishu_webhook`
+
+### `GET /api/alerts`
+
+返回告警历史记录（从 `~/.qclaw/.monitor_alerts.json` 读取）。
+
+**响应示例：**
+```json
+[
+  {
+    "key": "cpu_high",
+    "title": "⚠️ CPU 使用率过高",
+    "message": "CPU 使用率 92.6%",
+    "time": "2026-05-24 06:34:36"
+  }
+]
+```
+
+---
+
+### `GET /api/export/json`
+
+返回当前监控快照的 JSON 格式（与 `/api/data` 相同结构）。
+
+---
+
+### `GET /api/export/csv`
+
+返回当前监控快照的 CSV 格式。
+
+---
+
+### `GET /api/process/<pid>`
+
+返回指定 PID 的进程详情。
+
+**路径参数：**
+- `pid` — 进程ID (1~999999)
+
+**响应示例：**
+```json
+{
+  "pid": 1234,
+  "found": true,
+  "cpu_pct": 12.5,
+  "mem_pct": 3.2,
+  "rss_mb": 256,
+  "vsz_mb": 512,
+  "nice": "0",
+  "elapsed": "5-10:23:45",
+  "command": "/usr/bin/python3 mac_ai_monitor.py"
+}
+```
+
+**错误码：**
+| 状态码 | 说明 |
+|--------|------|
+| 400 | PID 格式无效或超出范围 |

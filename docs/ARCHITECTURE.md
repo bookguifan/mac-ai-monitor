@@ -1,11 +1,11 @@
 # Mac AI Monitor — 代码架构
 
 > 行号级架构参考，改代码前先查这里
-> **版本**: v2.14.0 | **更新**: 2026-05-23
+> **版本**: v2.14.1 | **更新**: 2026-05-24
 
 ---
 
-## mac_ai_monitor.py (2574行)
+## mac_ai_monitor.py (2753行)
 
 ```
 ====== Config ====== (L14-27)
@@ -91,7 +91,7 @@ HTML 骨架，引用外部静态资源：
 
 色彩变量：`--text2: #a8c4e0` / `--text3: #6b7f9e`
 
-## static/js/app.js (1114行)
+## static/js/app.js (1251行)
 
 ```
 工具函数: fmt_pct/fmt_gb/fmt_mb/fmt_net/fmt_size/esc
@@ -106,7 +106,7 @@ render(d): 全量 HTML 渲染
   → 会话统计(Tokens/Messages/ToolCalls) → Skills/日志/数据目录
   → GPU信息 (name + VRAM) → Footer (项目结构)
 
-刷新控制: 默认 Manual，可切换 Auto(30s)，Tab 隐藏时暂停
+刷新控制: 默认 Manual，可切换 Auto(5s/10s/30s/60s)，Tab 隐藏时暂停
 
 Gateway 日志弹窗:
   fetchGatewayLog() → /api/gateway-log → 模态框显示

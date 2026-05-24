@@ -1203,7 +1203,7 @@ def collect_all():
                         for line in raw.strip().split('\n'):
                             if not line.strip(): continue
                             try: msgs.append(json.loads(line))
-                            except: continue
+                            except Exception: continue
                     for obj in msgs:
                         if not isinstance(obj, dict): continue
                         if obj.get('type') == 'message' or obj.get('role') == 'assistant':
@@ -1278,7 +1278,7 @@ def collect_all():
                         for line in raw.strip().split('\n'):
                             if not line.strip(): continue
                             try: msgs.append(json.loads(line))
-                            except: continue
+                            except Exception: continue
                     session_stats['total_messages'] += len(msgs)
                     for m in msgs:
                         if not isinstance(m, dict): continue
@@ -1376,7 +1376,7 @@ def collect_all():
                     for line in raw.split('\n'):
                         if not line.strip(): continue
                         try: msg = json.loads(line)
-                        except: continue
+                        except Exception: continue
                         if msg.get('type') == 'session':
                             lbl = msg.get('label', '')
                             if lbl: return lbl
@@ -2605,6 +2605,8 @@ class Handler(BaseHTTPRequestHandler):
             # Detail for a specific PID
             try:
                 pid = int(self.path.split('/')[-1])
+                if pid < 1 or pid > 999999:
+                    self.send_response(400); self.end_headers(); return
             except ValueError:
                 self.send_response(400); self.end_headers(); return
             detail = {'pid': pid, 'found': False}
@@ -2656,9 +2658,11 @@ class Handler(BaseHTTPRequestHandler):
             except BrokenPipeError:
                 pass
         elif self.path.startswith('/static/'):
-            # Serve static files
-            static_dir = os.path.dirname(os.path.abspath(__file__))
-            file_path = os.path.join(static_dir, self.path.lstrip('/'))
+            # Serve static files (path traversal protection)
+            static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
+            file_path = os.path.normpath(os.path.join(static_dir, self.path[len('/static/'):]))
+            if not file_path.startswith(static_dir + os.sep):
+                self.send_response(403); self.end_headers(); return
             if os.path.isfile(file_path):
                 # Determine Content-Type
                 ext = os.path.splitext(file_path)[1].lower()

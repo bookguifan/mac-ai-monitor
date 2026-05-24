@@ -37,7 +37,7 @@ nohup python3 mac_ai_monitor.py > logs/monitor_stdout.log 2>&1 &
 
 ```
 mac_ai_monitor/
-├── mac_ai_monitor.py      # 主程序 (2574行)
+├── mac_ai_monitor.py      # 主程序 (2753行)
 ├── index.html             # HTML 骨架 (46行)
 ├── dev.sh                 # 开发工具链 (watch/restart/status/commit)
 ├── docs/
@@ -48,7 +48,7 @@ mac_ai_monitor/
 │   └── CHANGELOG.md       # 版本历史
 └── static/
     ├── css/style.css      # 样式 (311行, 暗色主题, 响应式4断点)
-    └── js/app.js          # 前端逻辑 (1114行, 渲染+刷新+交互)
+    └── js/app.js          # 前端逻辑 (1251行, 渲染+刷新+交互)
 
 系统文件:
   结构化日志:   ~/.qclaw/logs/monitor.log (JSONL, 10MB×3轮转)
