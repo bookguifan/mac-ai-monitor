@@ -868,7 +868,7 @@ function render(d){
     │   └── <span class="struct-file">style.css</span>      # 样式 (311行)
     └── <span class="struct-dir">js/</span>
         └── <span class="struct-file">app.js</span>          # 前端逻辑 (1143行)</code></pre>
-    <p style="font-size:10px;color:var(--text3);margin-top:6px">配置: ~/.qclaw/.monitor_alert_config.json · 日志: logs/</p>
+    <p style="font-size:10px;color:var(--text3);margin-top:6px">配置: data/alert_config.json · 日志: data/logs/</p>
   </footer>`;
 
   $('#app').innerHTML = html;

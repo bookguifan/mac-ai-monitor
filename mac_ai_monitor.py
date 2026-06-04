@@ -19,11 +19,13 @@ CPU_TTL       = 60  # top -l 1 needs 60s sampling
 _cpu_cache    = {'data': None, 'ts': 0}
 SCRIPT_FILE   = os.path.basename(__file__)
 HOME          = os.path.expanduser('~')
-LOG_FILE      = os.path.join(HOME, '.qclaw', 'logs', 'monitor.log')
+SCRIPT_DIR    = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR      = os.path.join(SCRIPT_DIR, 'data')
+LOG_FILE      = os.path.join(DATA_DIR, 'logs', 'monitor.log')
 __version__   = '2.14.0'
-ALERT_FILE    = os.path.join(HOME, '.qclaw/.monitor_alerts.json')
+ALERT_FILE    = os.path.join(DATA_DIR, 'alerts.json')
 ALERT_COOLDOWN = 1800  # 30 分钟相同告警不重复
-ALERT_CONFIG_FILE = os.path.join(HOME, '.qclaw/.monitor_alert_config.json')
+ALERT_CONFIG_FILE = os.path.join(DATA_DIR, 'alert_config.json')
 
 # Default alert thresholds (overridable via ALERT_CONFIG_FILE)
 DEFAULT_THRESHOLDS = {
@@ -48,6 +50,8 @@ def get_thresholds():
         return merged
     return dict(DEFAULT_THRESHOLDS)
 
+os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
+os.makedirs(DATA_DIR, exist_ok=True)
 logging.basicConfig(filename=LOG_FILE, level=logging.WARNING,
                     format='%(asctime)s %(levelname)s %(message)s')
 
@@ -152,9 +156,9 @@ def send_alert(title, message, alert_key=''):
         cmd = f'''osascript -e 'display notification "{message}" with title "{title}"' '''
         subprocess.run(cmd, shell=True, capture_output=True, timeout=5)
         
-        # 飞书 webhook 推送（需在 ~/.qclaw/.monitor_feishu_webhook 中配置 webhook URL）
+        # 飞书 webhook 推送（需在 data/feishu_webhook 中配置 webhook URL）
         _feishu_webhook = ''
-        _wh_file = os.path.join(HOME, '.qclaw/.monitor_feishu_webhook')
+        _wh_file = os.path.join(DATA_DIR, 'feishu_webhook')
         try:
             if os.path.exists(_wh_file):
                 _feishu_webhook = open(_wh_file).read().strip()
@@ -204,7 +208,7 @@ def get_log_sizes():
     """统计关键日志文件大小"""
     log_files = [
         ('监控面板', LOG_FILE),
-        ('监控面板 stdout', os.path.join(HOME, '.qclaw', 'logs', 'monitor_stdout.log')),
+        ('监控面板 stdout', os.path.join(DATA_DIR, 'logs', 'monitor_stdout.log')),
     ]
     # 添加 OpenClaw 日志
     for base in ['.qclaw', '.qclaw-hermes', '.openclaw-autoclaw', '.jvs/.openclaw']:
@@ -346,7 +350,7 @@ def collect_all():
     
     # Config change detection
     config_changes = []
-    prev_hashes = try_json(os.path.join(HOME, '.qclaw/.config_hashes.json')) or {}
+    prev_hashes = try_json(os.path.join(DATA_DIR, 'config_hashes.json')) or {}
     for inst in instances:
         path = inst.get('config_path', '')
         curr_hash = inst.get('config_hash', '')
@@ -357,7 +361,7 @@ def collect_all():
     # Save hashes for next comparison
     try:
         os.makedirs(os.path.dirname(ALERT_FILE), exist_ok=True)
-        with open(os.path.join(HOME, '.qclaw/.config_hashes.json'), 'w') as f:
+        with open(os.path.join(DATA_DIR, 'config_hashes.json'), 'w') as f:
             json.dump(prev_hashes, f)
     except Exception: pass
     data['config_changes'] = config_changes

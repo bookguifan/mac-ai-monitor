@@ -3,9 +3,12 @@ __pycache__/
 *.bak
 *.full
 
-# Logs (忽略文件,保留目录)
-logs/*
-*.log
+# Data (运行时数据, 不提交)
+data/alerts.json
+data/alert_config.json
+data/config_hashes.json
+data/feishu_webhook
+data/logs/*.log
 
 # Runtime
 run/

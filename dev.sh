@@ -6,7 +6,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PY_FILE="$SCRIPT_DIR/mac_ai_monitor.py"
 PID_FILE="$SCRIPT_DIR/run/mac_ai_monitor.pid"
-LOG_DIR="$SCRIPT_DIR/logs"
+LOG_DIR="$SCRIPT_DIR/data/logs"
 STDOUT_LOG="$LOG_DIR/monitor_stdout.log"
 PORT=8849
 
@@ -128,14 +128,14 @@ status() {
     fi
     echo ""
     echo "  端口: $PORT"
-    echo "  日志: ~/.qclaw/logs/monitor.log"
+    echo "  日志: $LOG_DIR/monitor.log"
     echo "  stdout: $STDOUT_LOG"
     echo "  前端: http://127.0.0.1:$PORT"
 }
 
 # 查看日志
 show_log() {
-    local log_file="${1:-~/.qclaw/logs/monitor.log}"
+    local log_file="${1:-$LOG_DIR/monitor.log}"
     if [ -f "$log_file" ]; then
         tail -50 "$log_file"
     else
