@@ -1,15 +1,15 @@
 # Mac AI Monitor — 代码架构
 
 > 行号级架构参考，改代码前先查这里
-> **版本**: v2.15.0 | **更新**: 2026-06-04
+> **版本**: v2.15.1 | **更新**: 2026-06-04
 
 ---
 
-## mac_ai_monitor.py (2757行)
+## mac_ai_monitor.py (2782行)
 
 ```
-====== Config ====== (L12-27)
-  端口、缓存TTL、告警冷却、路径配置(SCRIPT_DIR/DATA_DIR)
+====== Config ====== (L12-57)
+  端口、缓存TTL、告警阈值、路径配置(SCRIPT_DIR/DATA_DIR)、get_thresholds()
 
 ====== History ====== (L58-65)
   _history = {cpu, mem, disk, swap, net} 各60条 deque
@@ -25,7 +25,7 @@
   L256  get_config_hash(path)                    — MD5 变更检测
   L265  extract_instances(configs)               — 实例/模型/Provider提取
 
-====== Main Data Collection ====== (L331-1432)
+====== Main Data Collection ====== (L331-1460)
   L332  collect_all() — 单函数内完成所有数据采集
 
   数据块 (按 collect_all 中的注释标记):
@@ -42,23 +42,23 @@
   L701   # ---- Top Processes (from shared ps_procs) ----
   L722   # ---- Shared lsof (single call, reused by Ports + Gateway) ----
   L733   # ---- Ports (from shared lsof_listen + ps_procs) ----
-  L753   # ---- Gateway Detection (from shared lsof_all) ----
-  L873   # ---- Gateway: 按软件名合并 + 性能指标 ----
-  L959   # ---- Trigger Alerts ----
-  L976   # ---- Data Directories ----
-  L1021  # ---- Cron ----
-  L1060  # ---- Skills ----
-  L1110  # ---- Skill Call Statistics (scan session files) ----
-  L1254  # ---- Session Token Statistics ----
-  L1315  # ---- Recent Errors ----
-  L1318  # ---- Activity ----
-  L1422  # ---- History ----
+  L753   # ---- Gateway Detection (from ps_procs + lsof) ----
+  L898   # ---- Gateway: 按软件名合并 + 性能指标 ----
+  L984   # ---- Trigger Alerts ----
+  L1001  # ---- Data Directories ----
+  L1046  # ---- Cron ----
+  L1085  # ---- Skills ----
+  L1135  # ---- Skill Call Statistics (scan session files) ----
+  L1279  # ---- Session Token Statistics ----
+  L1340  # ---- Recent Errors ----
+  L1343  # ---- Activity ----
+  L1447  # ---- History ----
 
-====== HTML Template ====== (L1436-2496)
+====== HTML Template ====== (L1462-2520)
   内联 HTML 模板 (备用，当前优先使用 index.html)
 
-====== HTTP Handler ====== (L2497-2709)
-  L2497  class Handler(BaseHTTPRequestHandler)
+====== HTTP Handler ====== (L2521-2738)
+  L2522  class Handler(BaseHTTPRequestHandler)
     /              → 优先 index.html (引用外部CSS/JS)，备用 HTML_PAGE
     /health        → 健康状态 (warming=200, degraded)
     /api/data      → 完整监控数据 (60s缓存)
@@ -68,11 +68,11 @@
     /api/export/json|csv → 数据导出
     /api/process/<pid> → 进程详情
     /static/*      → 静态文件服务 (路径遍历防护)
-  L2710  class ThreadedServer — 多线程 HTTP 服务
+  L2735  class ThreadedServer — 多线程 HTTP 服务
 
-====== Main ====== (L2715-2757)
-  L2715  _shutdown() — 信号处理优雅退出
-  L2721  __main__ — 服务启动入口
+====== Main ====== (L2740-2782)
+  L2740  _shutdown() — 信号处理优雅退出
+  L2746  __main__ — 服务启动入口
 ```
 
 ---
@@ -140,7 +140,7 @@ ALERT_FILE    = os.path.join(DATA_DIR, alerts.json)
 ALERT_CONFIG_FILE = os.path.join(DATA_DIR, alert_config.json)
 ```
 
-> 注：`~/.qclaw/.monitor_persistent_cache.json` 仍使用 HOME 路径（全局缓存，与项目位置无关）
+> 注：v2.15.0 起已移除持久化缓存（`~/.qclaw/.monitor_persistent_cache.json`），服务重启后首次请求触发全量采集。
 
 ---
 
@@ -180,7 +180,7 @@ collect_all()
   ├── Top Processes                                     — CPU/MEM排序
   ├── Shared lsof (1次)                                 — Ports + Gateway 复用
   ├── Ports                                             — lsof + KNOWN_PORTS
-  ├── Gateway Detection (4规则 + PPID链)                 — 合并+性能指标+健康评分
+  ├── Gateway Detection (5规则 + PID反查端口 + PPID链)   — 合并+性能指标+健康评分
   ├── Alerts                                            — 自动告警
   ├── Data Directories (ThreadPoolExecutor 并发, 5min缓存) — du -sk
   ├── Cron                                              — 4路径 jobs.json
@@ -204,24 +204,31 @@ collect_all()
 | `_data_dir_cache` | 300s | du 目录大小 |
 | `_skills_cache` | 300s | Skills 扫描 |
 | `_session_file_idx` | 120s | Session 文件索引 |
-| 持久化缓存 | 启动时<30min | 服务重启立即恢复 |
+| 持久化缓存 | 无 | v2.15.0 起已移除，服务重启后首次请求触发全量采集 |
 
 ---
 
 ## Gateway 检测
 
-4规则匹配 + PPID链追溯：
+5规则匹配 + PPID链追溯 + PID反查端口：
 
-| 规则 | 匹配关键词 | 优先级 |
-|------|-----------|--------|
-| openclaw-gateway | `openclaw-gateway`, `gateway` | P0 |
-| QClaw | `qclaw` (进程名含空格如 `QClaw\x20`) | P0 |
-| Claude | `claude` (Desktop App) | P1 |
-| AutoClaw | `autoclaw` (排除 helper/renderer/gpu/network) | P1 |
+| 规则 | 匹配关键词 | 说明 | 优先级 |
+|------|-----------|------|--------|
+| openclaw-gateway | `openclaw-gateway` | QClaw内置二进制启动 | P0 |
+| openclaw CLI | `openclaw` + `gateway` + `index.js` | CLI `node .../openclaw/dist/index.js gateway` 启动 | P0 |
+| hermes | `hermes` (排除非python) | Hermes Gateway | P1 |
+| AutoClaw | `autoclaw` | AutoClaw Gateway | P1 |
+| JVS | `jvs`/`JVS` (排除python/relay) | JVS Claw | P1 |
+
+**端口捕获流程** (v2.15.1 改进):
+1. `ps aux` 预扫描 → 按5规则找到所有 Gateway PID 集合 (`_gw_pid_set`)
+2. `lsof` LISTEN 行 → 按 PID 匹配端口（解决 CLI 进程在 lsof 中显示为 `node` 的问题）
+3. IPv6 端口解析：正则优先匹配 `:(\d+)\s+\(LISTEN`，避免 `[::1]:18789` 误解析为端口 `1`
+4. 端口去重：IPv4/IPv6 同端口不重复
 
 PPID链追溯：`ps -eo pid,ppid,comm` → 父进程匹配 → 发现隐藏Gateway进程。
 
-PID反查：已知Gateway PID → lsof反查端口（解决进程名显示为 `node` 的情况）。
+来源识别优先级：PPID链中的comm → args fallback（openclaw+gateway → 'OpenClaw'）。
 
 健康评分：system(负载/CPU/内存) + gateway(进程数/闲置) + endpoint(可选)。
 
@@ -268,6 +275,6 @@ PID反查：已知Gateway PID → lsof反查端口（解决进程名显示为 `n
 preexec_fn=os.setpgrp
 ```
 
-信号处理：SIGTERM/SIGINT → 保存持久化缓存 → 优雅退出
+信号处理：SIGTERM/SIGINT → 优雅退出
 
 GPU 预热：启动3s后后台线程执行 `system_profiler SPDisplaysDataType`

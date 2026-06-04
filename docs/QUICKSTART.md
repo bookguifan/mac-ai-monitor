@@ -1,7 +1,7 @@
 # Mac AI Monitor — 代码修改流程
 
 > 合并风险分层 + Mac AI Monitor 特定检查 + 任务artifact规范
-> **版本**: v2.15.0 (流程更新) | **更新**: 2026-06-04
+> **版本**: v2.15.1 | **更新**: 2026-06-04
 
 ---
 
@@ -122,9 +122,9 @@ grep -n "关键词" mac_ai_monitor.py
 # 【可选】保存修改前快照：curl /api/data > /tmp/before.json
 
 # 2. 升级版本号（修改前升级，便于区分）
-# mac_ai_monitor.py L25: __version__='2.15.0'
+# mac_ai_monitor.py L25: __version__='2.15.1'
 edit 修改版本号
-./dev.sh commit "chore: bump version to 2.15.0"
+./dev.sh commit "chore: bump version to 2.16.0"   # 示例
 
 # 3. 备份当前状态
 ./dev.sh commit "backup: before refactor"
@@ -185,7 +185,7 @@ curl -s http://127.0.0.1:8849/api/data | python3 -m json.tool
 | 前端逻辑/渲染 | `static/js/app.js` | ⚠️ 先查是否用内联HTML_PAGE；**无需重启服务**，硬刷新浏览器即可 |
 | 数据采集/后端逻辑 | `mac_ai_monitor.py` | py_compile + restart |
 | 新增API端点 | `mac_ai_monitor.py` Handler类 | py_compile + restart；同步更新 docs/API.md |
-| 端口/缓存/配置常量 | `mac_ai_monitor.py` L13-27 | py_compile + restart；同步更新 docs/ARCHITECTURE.md |
+| 端口/缓存/配置常量 | `mac_ai_monitor.py` L13-28 | py_compile + restart；同步更新 docs/ARCHITECTURE.md |
 | 告警逻辑 | `mac_ai_monitor.py` L147 `send_alert()` | py_compile + restart；测试告警触发 |
 
 > ⚠️ **注意**：改 `static/` 文件前必查内联状态（见「修改前必读」）
@@ -244,13 +244,13 @@ curl -s http://127.0.0.1:8849/api/data | python3 -m json.tool
 
 | 任务 | 文件 | 关键标识 |
 |------|------|----------|
-| 版本号 | mac_ai_monitor.py L25 | `__version__='2.15.0'` |
+| 版本号 | mac_ai_monitor.py L25 | `__version__='2.15.1'` |
 | 端口 | mac_ai_monitor.py L13 | `PORT=8849` |
-| 缓存TTL | mac_ai_monitor.py L14-17 | `CACHE_TTL/GPU_CACHE_TTL` |
+| 缓存TTL | mac_ai_monitor.py L14-18 | `CACHE_TTL/GPU_CACHE_TTL/CPU_TTL` |
 | 告警冷却 | mac_ai_monitor.py L27 | `ALERT_COOLDOWN=1800` |
 | 数据采集 | mac_ai_monitor.py L332 | `collect_all()` |
-| 活动解析 | mac_ai_monitor.py L1318 | `# ---- Activity ----` |
-| HTTP路由 | mac_ai_monitor.py L2497 | `class Handler` |
+| 活动解析 | mac_ai_monitor.py L1343 | `# ---- Activity ----` |
+| HTTP路由 | mac_ai_monitor.py L2522 | `class Handler` |
 | 前端渲染 | static/js/app.js | `render(d)` |
 | CSS样式 | static/css/style.css | 暗色主题变量 |
 | GPU信息 | mac_ai_monitor.py L411 | `# ---- GPU ----` |
@@ -303,6 +303,7 @@ curl -s http://127.0.0.1:8849/api/data | python3 -m json.tool
 
 | 版本 | 日期 | 变更 |
 |------|------|------|
+| v2.15.1 | 2026-06-04 | 行号校准 (Activity L1343, Handler L2522)、版本号同步 v2.15.1 |
 | v2.15.0 | 2026-06-04 | 行号校准 (L23→L25, L119→L147, L328→L332 等)、版本号同步 v2.15.0 |
 | v2.14.0 | 2026-05-23 | 新增：起飞前检查、dev.sh命令参考、版本号时机说明、更新本文档提醒、回滚指南增强 |
 | v2.13.0 | 2026-05-23 | 新增：任务 Artifact 规范、回滚指南、决策树可视化 |

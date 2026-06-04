@@ -5,6 +5,27 @@
 
 ---
 
+## v2.15.1 (2026-06-04)
+
+### Bug 修复
+- 修复 CLI 启动的 OpenClaw Gateway 不被检测（`node .../openclaw/dist/index.js gateway` 进程）
+- 修复 IPv6 地址 `[::1]:18789` 导致端口误解析为 `1`
+- 修复 IPv4/IPv6 同端口重复显示
+- 来源识别增加 `openclaw+gateway` 的 fallback 判断
+
+### 架构改进
+- Gateway 端口捕获改用 `ps_procs` 预扫描 PID → 再从 lsof 反查（替代 lsof 关键词匹配）
+- Gateway 检测规则从 4 条扩展为 5 条（新增 CLI 启动规则）
+
+### 文档更新
+- ARCHITECTURE.md: 行号校准 (2757→2782行)、Gateway检测章节重写、缓存策略更新
+- QUICKSTART.md: 行号校准 (Activity L1318→L1343, Handler L2497→L2522)
+- API.md: 版本号同步 v2.15.0、health 示例版本号修正
+- TROUBLESHOOTING.md: 版本号同步
+- README.md: 行数更新、持久化缓存说明更新
+
+---
+
 ## v2.15.0 (2026-06-04)
 
 ### 重构

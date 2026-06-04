@@ -1,7 +1,7 @@
 # Mac AI Monitor — 故障排查与回滚
 
 > 回滚指南 + 常见问题 + 流程决策树
-> **版本**: v2.14.0 | **更新**: 2026-05-23
+> **版本**: v2.15.1 | **更新**: 2026-06-04
 
 ---
 
@@ -27,7 +27,7 @@
 | 页面空白/卡加载 | F12→Console 看报错，`curl /api/data` 检查返回 |
 | CSS/JS 修改不生效 | 检查是否用了内联 HTML_PAGE（见 QUICKSTART「修改前必读」） |
 | 首次API慢 | 正常，GPU预热~15s+CPU~5s，缓存后<100ms |
-| 活动显示"Session @" | 清缓存: `rm ~/.qclaw/.monitor_persistent_cache.json` 重启（此缓存仍在 HOME 路径） |
+| 活动显示"Session @" | 清缓存: 删除 `data/alerts.json` 重启服务 |
 | 数据字段为None | `curl /api/data \| python3 -m json.tool` 查原始数据 |
 | 服务被signal 15杀 | 确认 `__main__` 有 `preexec_fn=os.setpgrp` |
 | 改坏了想回滚 | 见上方「回滚指南」 |
@@ -61,4 +61,5 @@
 
 | 版本 | 日期 | 变更 |
 |------|------|------|
+| v2.15.1 | 2026-06-04 | 版本号同步、路径引用更新、清缓存指南修正 |
 | v2.14.0 | 2026-05-23 | 从 QUICKSTART.md 拆分为独立文档 |
