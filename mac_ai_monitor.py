@@ -752,20 +752,41 @@ def collect_all():
 
     # ---- Gateway Detection (from shared lsof_all) ----
     gateways = []; gw_ports = {}
-    # Only capture ports for PIDs we will actually detect as gateways
-    _gw_kw = {'openclaw-gateway','hermes','autoclaw','jvs'}
+    # Pre-scan: find gateway PIDs from ps_procs (handles both binary and CLI launches)
+    _gw_pid_set = set()
+    _gw_cli_rules = [
+        {'kw': 'openclaw-gateway'},
+        {'kw': 'openclaw', 'extra': lambda a: 'gateway' in a.lower() and 'index.js' in a.lower()},
+        {'kw': 'hermes', 'extra': lambda a: 'python' in a.lower()},
+        {'kw': 'autoclaw'},
+        {'kw': 'jvs', 'extra': lambda a: 'python' not in a.lower() and 'relay' not in a,
+         'kw_upper': 'JVS'},
+    ]
+    for _pid, _info in ps_procs.items():
+        _args = _info.get('args', '').lower()
+        if SCRIPT_FILE in _args: continue
+        for _rule in _gw_cli_rules:
+            _kw = _rule.get('kw', '')
+            _kw_u = _rule.get('kw_upper', '')
+            _cond = (_kw in _args) or (_kw_u and _kw_u in _info.get('args', ''))
+            if not _cond: continue
+            _extra = _rule.get('extra')
+            if _extra and not _extra(_info.get('args', '')): continue
+            _gw_pid_set.add(_pid); break
+    # Capture ports for gateway PIDs from lsof (dedup per PID)
     try:
         for line in lsof_all:
             if 'LISTEN' not in line: continue
-            lower = line.lower()
-            if not any(kw in lower for kw in _gw_kw): continue
-            if 'script.py' in lower: continue
             p = line.split()
             pid = p[1] if len(p) >= 2 else ''
-            m = re.search(r':(\d+)', line)
+            if pid not in _gw_pid_set: continue
+            # Use last :port before (LISTEN) to avoid IPv6 ::1 false match
+            m = re.search(r':(\d+)\s+\(LISTEN', line)
+            if not m: m = re.search(r':(\d+)', line)
             port = m.group(1) if m else ''
             if port and 1 <= int(port) <= 65535 and pid:
-                gw_ports.setdefault(pid, []).append(port)
+                if port not in gw_ports.get(pid, []):
+                    gw_ports.setdefault(pid, []).append(port)
     except Exception: pass
 
     ppid_map = {}
@@ -800,6 +821,7 @@ def collect_all():
         args = ps.get('args', '').lower()
         if 'autoclaw' in args: return 'AutoClaw'
         if 'jvs' in args or '.jvs' in args: return 'JVS'
+        if 'openclaw' in args and 'gateway' in args: return 'OpenClaw'
         if not app_comm: return 'CLI'
         return '?'
 
@@ -811,6 +833,9 @@ def collect_all():
     _GW_RULES = [
         {'kw': 'openclaw-gateway', 'name_fmt': '{src} Gateway', 'default_name': 'OpenClaw',
          'software': 'OpenClaw Gateway', 'match_inst': True},
+        {'kw': 'openclaw', 'name_fmt': '{src} Gateway', 'default_name': 'OpenClaw',
+         'software': 'OpenClaw Gateway', 'match_inst': True,
+         'extra': lambda a: 'gateway' in a.lower() and 'index.js' in a.lower()},
         {'kw': 'hermes', 'name': 'Hermes', 'software': 'Hermes Gateway',
          'extra': lambda a: 'python' in a.lower(), 'default_port': '8642'},
         {'kw': 'autoclaw', 'name': 'AutoClaw', 'software': 'AutoClaw Gateway',
