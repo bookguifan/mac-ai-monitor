@@ -5,6 +5,24 @@
 
 ---
 
+## v2.15.0 (2026-06-04)
+
+### 重构
+- 运行时数据从 `~/.qclaw/` 迁移到项目本地 `data/` 目录，项目完全自包含
+- 新增 `SCRIPT_DIR` / `DATA_DIR` 常量，7 处 `HOME + .qclaw` 路径改为 `DATA_DIR`
+- dev.sh 日志输出改为项目本地 `data/logs/`
+- 前端提示文案更新（`~/.qclaw/.monitor_alert_config.json` → `data/alert_config.json`）
+- .gitignore 适配新 `data/` 目录结构
+- 清理旧 `logs/` 目录，删除 `~/.qclaw/mac_ai_monitor/` 残留
+
+### 文档更新
+- README.md: 项目路径、启动命令、项目结构同步更新
+- ARCHITECTURE.md: 行号校准 (2753→2757行)、新增运行时数据目录章节、路径引用更新
+- API.md: 飞书配置路径、告警文件路径更新
+- QUICKSTART.md: 版本号快速定位行号校准
+
+---
+
 ## v2.14.0 (2026-05-23)
 
 ### Bug 修复

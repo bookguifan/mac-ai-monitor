@@ -188,11 +188,11 @@ Gateway 日志内容。
 
 - macOS 系统通知 + 飞书 Webhook 推送
 - 30min 冷却机制避免频繁打扰
-- 飞书配置：将 Webhook URL 写入 `~/.qclaw/.monitor_feishu_webhook`
+- 飞书配置：将 Webhook URL 写入 `data/feishu_webhook`
 
 ### `GET /api/alerts`
 
-返回告警历史记录（从 `~/.qclaw/.monitor_alerts.json` 读取）。
+返回告警历史记录（从 `data/alerts.json` 读取）。
 
 **响应示例：**
 ```json

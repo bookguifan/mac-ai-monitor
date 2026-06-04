@@ -1,64 +1,64 @@
 # Mac AI Monitor — 代码架构
 
 > 行号级架构参考，改代码前先查这里
-> **版本**: v2.14.1 | **更新**: 2026-05-24
+> **版本**: v2.15.0 | **更新**: 2026-06-04
 
 ---
 
-## mac_ai_monitor.py (2749行)
+## mac_ai_monitor.py (2757行)
 
 ```
-====== Config ====== (L14-27)
-  端口、缓存TTL、告警冷却、日志配置
+====== Config ====== (L12-27)
+  端口、缓存TTL、告警冷却、路径配置(SCRIPT_DIR/DATA_DIR)
 
-====== History ====== (L31-36)
+====== History ====== (L58-65)
   _history = {cpu, mem, disk, swap, net} 各60条 deque
 
-====== Utilities ====== (L89-208)
-  L89   run_cmd(cmd, timeout=10)                — Shell 执行, 编码自动检测
-  L100  esc() / fmt_uptime() / try_json()       — 工具函数
-  L119  send_alert(title, message, alert_key)   — macOS通知 + 飞书Webhook + 30min冷却
-  L156  tail_errors() / get_log_sizes()         — 多日志源
+====== Utilities ====== (L67-236)
+  L117  run_cmd(cmd, timeout=10)                — Shell 执行, 编码自动检测
+  L128  esc() / fmt_uptime() / try_json()       — 工具函数
+  L147  send_alert(title, message, alert_key)   — macOS通知 + 飞书Webhook + 30min冷却
+  L184  tail_errors() / get_log_sizes()         — 多日志源
 
-====== Config Discovery ====== (L211-301)
-  L211  discover_configs()                       — 4路径配置发现
-  L252  get_config_hash(path)                    — MD5 变更检测
-  L261  extract_instances(configs)               — 实例/模型/Provider提取
+====== Config Discovery ====== (L238-329)
+  L239  discover_configs()                       — 4路径配置发现
+  L256  get_config_hash(path)                    — MD5 变更检测
+  L265  extract_instances(configs)               — 实例/模型/Provider提取
 
-====== Main Data Collection ====== (L328-1427)
-  L328  collect_all() — 单函数内完成所有数据采集
+====== Main Data Collection ====== (L331-1432)
+  L332  collect_all() — 单函数内完成所有数据采集
 
   数据块 (按 collect_all 中的注释标记):
-  L366   # ---- System Info ----           sysctl 单次合并 (hostname/os/cores/temp/mem/gpu)
-  L407   # ---- GPU (cached 60s, with lock) ----  system_profiler
-  L451   # ---- CPU Usage (sampled over 60s via top -l 1, with lock) ----
-  L486   # ---- Memory (vm_stat + hw.memsize for total) ----
-  L517   # ---- Disk ----                  df -h (含 size_gb/used_gb/available_gb 转换)
-  L550   # ---- Volumes (df-based, single pass) ----
-  L595   # ---- Battery ----               pmset
-  L608   # ---- Network ----               netstat -ib (首帧保护)
-  L629   # ---- Disk IO (iostat, macOS built-in) ----
-  L683   # ---- Shared Process Table (single ps aux) ----
-  L697   # ---- Top Processes (from shared ps_procs) ----
-  L718   # ---- Shared lsof (single call, reused by Ports + Gateway) ----
-  L729   # ---- Ports (from shared lsof_listen + ps_procs) ----
-  L749   # ---- Gateway Detection (from shared lsof_all) ----
-  L869   # ---- Gateway: 按软件名合并 + 性能指标 ----
-  L955   # ---- Trigger Alerts ----
-  L972   # ---- Data Directories ----
-  L1017  # ---- Cron ----
-  L1056  # ---- Skills ----
-  L1106  # ---- Skill Call Statistics (scan session files) ----
-  L1250  # ---- Session Token Statistics ----
-  L1311  # ---- Recent Errors ----
-  L1314  # ---- Activity ----
-  L1418  # ---- History ----
+  L370   # ---- System Info ----           sysctl 单次合并 (hostname/os/cores/temp/mem/gpu)
+  L411   # ---- GPU (cached 60s, with lock) ----  system_profiler
+  L455   # ---- CPU Usage (sampled over 60s via top -l 1, with lock) ----
+  L490   # ---- Memory (vm_stat + hw.memsize for total) ----
+  L521   # ---- Disk ----                  df -h (含 size_gb/used_gb/available_gb 转换)
+  L554   # ---- Volumes (df-based, single pass) ----
+  L599   # ---- Battery ----               pmset
+  L612   # ---- Network ----               netstat -ib (首帧保护)
+  L633   # ---- Disk IO (iostat, macOS built-in) ----
+  L687   # ---- Shared Process Table (single ps aux) ----
+  L701   # ---- Top Processes (from shared ps_procs) ----
+  L722   # ---- Shared lsof (single call, reused by Ports + Gateway) ----
+  L733   # ---- Ports (from shared lsof_listen + ps_procs) ----
+  L753   # ---- Gateway Detection (from shared lsof_all) ----
+  L873   # ---- Gateway: 按软件名合并 + 性能指标 ----
+  L959   # ---- Trigger Alerts ----
+  L976   # ---- Data Directories ----
+  L1021  # ---- Cron ----
+  L1060  # ---- Skills ----
+  L1110  # ---- Skill Call Statistics (scan session files) ----
+  L1254  # ---- Session Token Statistics ----
+  L1315  # ---- Recent Errors ----
+  L1318  # ---- Activity ----
+  L1422  # ---- History ----
 
-====== HTML Template ====== (L1433-2492)
+====== HTML Template ====== (L1433-2496)
   内联 HTML 模板 (备用，当前优先使用 index.html)
 
-====== HTTP Handler ====== (L2493-2705)
-  L2493  class Handler(BaseHTTPRequestHandler)
+====== HTTP Handler ====== (L2497-2709)
+  L2497  class Handler(BaseHTTPRequestHandler)
     /              → 优先 index.html (引用外部CSS/JS)，备用 HTML_PAGE
     /health        → 健康状态 (warming=200, degraded)
     /api/data      → 完整监控数据 (60s缓存)
@@ -68,11 +68,11 @@
     /api/export/json|csv → 数据导出
     /api/process/<pid> → 进程详情
     /static/*      → 静态文件服务 (路径遍历防护)
-  L2706  class ThreadedServer — 多线程 HTTP 服务
+  L2710  class ThreadedServer — 多线程 HTTP 服务
 
-====== Main ====== (L2711-2749)
-  L2711  _shutdown() — 信号处理优雅退出
-  L2717  __main__ — 服务启动入口
+====== Main ====== (L2715-2757)
+  L2715  _shutdown() — 信号处理优雅退出
+  L2721  __main__ — 服务启动入口
 ```
 
 ---
@@ -113,6 +113,34 @@ render(d): 全量 HTML 渲染
 Gateway 日志弹窗:
   fetchGatewayLog() → /api/gateway-log → 模态框显示
 ```
+
+---
+
+## 运行时数据目录 (data/)
+
+v2.15.0 起所有运行时数据存放于项目本地 `data/` 目录，不再依赖 `~/.qclaw/`：
+
+```
+data/
+├── alerts.json            # 告警状态 (对应 ALERT_FILE)
+├── alert_config.json      # 告警阈值配置 (对应 ALERT_CONFIG_FILE)
+├── config_hashes.json     # 配置变更检测 (MD5 hash)
+├── feishu_webhook         # 飞书 Webhook URL (可选)
+└── logs/
+    ├── monitor.log        # 结构化日志 (对应 LOG_FILE)
+    └── monitor_stdout.log # stdout 重定向日志
+```
+
+路径定义 (mac_ai_monitor.py L21-26):
+```python
+SCRIPT_DIR    = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR      = os.path.join(SCRIPT_DIR, data)
+LOG_FILE      = os.path.join(DATA_DIR, logs, monitor.log)
+ALERT_FILE    = os.path.join(DATA_DIR, alerts.json)
+ALERT_CONFIG_FILE = os.path.join(DATA_DIR, alert_config.json)
+```
+
+> 注：`~/.qclaw/.monitor_persistent_cache.json` 仍使用 HOME 路径（全局缓存，与项目位置无关）
 
 ---
 
@@ -229,7 +257,7 @@ PID反查：已知Gateway PID → lsof反查端口（解决进程名显示为 `n
 - **飞书 Webhook**: POST 到配置的 webhook URL
 - **冷却机制**: 30min 内同一 alert_key 不重复推送
 - **触发条件**: Gateway 全挂、CPU > 90%、内存 > 95% 等
-- **配置飞书**: 将 Webhook URL 写入 `~/.qclaw/.monitor_feishu_webhook`
+- **配置飞书**: 将 Webhook URL 写入 `data/feishu_webhook`
 
 ---
 

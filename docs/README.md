@@ -20,7 +20,7 @@
 ## 🚀 快速开始
 
 ```bash
-cd ~/.qclaw/mac_ai_monitor
+cd /Users/zhaoqiansheng/Developer/Projects/mac_ai_monitor
 ./dev.sh restart              # 启动/重启
 open http://127.0.0.1:8849    # 打开面板
 ```
@@ -28,7 +28,7 @@ open http://127.0.0.1:8849    # 打开面板
 手动启动：
 ```bash
 kill $(lsof -ti :8849) 2>/dev/null
-nohup python3 mac_ai_monitor.py > logs/monitor_stdout.log 2>&1 &
+nohup python3 mac_ai_monitor.py > data/logs/monitor_stdout.log 2>&1 &
 ```
 
 ---
@@ -40,6 +40,14 @@ mac_ai_monitor/
 ├── mac_ai_monitor.py      # 主程序 (2753行)
 ├── index.html             # HTML 骨架 (46行)
 ├── dev.sh                 # 开发工具链 (watch/restart/status/commit)
+├── data/                  # 运行时数据 (gitignored)
+│   ├── alerts.json        # 告警状态
+│   ├── alert_config.json  # 告警阈值配置
+│   ├── config_hashes.json # 配置变更检测
+│   ├── feishu_webhook     # 飞书 Webhook URL (可选)
+│   └── logs/
+│       ├── monitor.log         # 结构化日志
+│       └── monitor_stdout.log  # stdout 日志
 ├── docs/
 │   ├── README.md          # 本文件 - 项目首页
 │   ├── QUICKSTART.md      # 5分钟入门
@@ -51,11 +59,7 @@ mac_ai_monitor/
     └── js/app.js          # 前端逻辑 (1251行, 渲染+刷新+交互)
 
 系统文件:
-  结构化日志:   ~/.qclaw/logs/monitor.log (JSONL, 10MB×3轮转)
-  持久化缓存:   ~/.qclaw/.monitor_persistent_cache.json
-  告警状态:     ~/.qclaw/.monitor_alerts.json
-  配置hash:     ~/.qclaw/.config_hashes.json
-  飞书Webhook:  ~/.qclaw/.monitor_feishu_webhook
+  持久化缓存:   ~/.qclaw/.monitor_persistent_cache.json (仍使用 HOME 路径)
 ```
 
 ---
