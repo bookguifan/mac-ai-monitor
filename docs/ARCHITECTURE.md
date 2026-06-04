@@ -54,7 +54,7 @@
   L1318  # ---- Activity ----
   L1422  # ---- History ----
 
-====== HTML Template ====== (L1433-2496)
+====== HTML Template ====== (L1436-2496)
   内联 HTML 模板 (备用，当前优先使用 index.html)
 
 ====== HTTP Handler ====== (L2497-2709)

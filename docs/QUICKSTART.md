@@ -1,7 +1,7 @@
 # Mac AI Monitor — 代码修改流程
 
 > 合并风险分层 + Mac AI Monitor 特定检查 + 任务artifact规范
-> **版本**: v2.14.0 (流程更新) | **更新**: 2026-05-23
+> **版本**: v2.15.0 (流程更新) | **更新**: 2026-06-04
 
 ---
 
@@ -124,7 +124,7 @@ grep -n "关键词" mac_ai_monitor.py
 # 2. 升级版本号（修改前升级，便于区分）
 # mac_ai_monitor.py L25: __version__='2.15.0'
 edit 修改版本号
-./dev.sh commit "chore: bump version to 2.14.0"
+./dev.sh commit "chore: bump version to 2.15.0"
 
 # 3. 备份当前状态
 ./dev.sh commit "backup: before refactor"
@@ -186,7 +186,7 @@ curl -s http://127.0.0.1:8849/api/data | python3 -m json.tool
 | 数据采集/后端逻辑 | `mac_ai_monitor.py` | py_compile + restart |
 | 新增API端点 | `mac_ai_monitor.py` Handler类 | py_compile + restart；同步更新 docs/API.md |
 | 端口/缓存/配置常量 | `mac_ai_monitor.py` L13-27 | py_compile + restart；同步更新 docs/ARCHITECTURE.md |
-| 告警逻辑 | `mac_ai_monitor.py` L119 `send_alert()` | py_compile + restart；测试告警触发 |
+| 告警逻辑 | `mac_ai_monitor.py` L147 `send_alert()` | py_compile + restart；测试告警触发 |
 
 > ⚠️ **注意**：改 `static/` 文件前必查内联状态（见「修改前必读」）
 > 💡 **提示**：改 `static/` 文件后无需 `./dev.sh restart`，直接浏览器硬刷新即可。
@@ -225,7 +225,7 @@ curl -s http://127.0.0.1:8849/api/data | python3 -m json.tool
 
 - [ ] 起飞前检查通过
 - [ ] **用户确认修改方案** 后再执行
-- [ ] 升级版本号（`mac_ai_monitor.py` L23）
+- [ ] 升级版本号（`mac_ai_monitor.py` L25）
 - [ ] 备份当前状态（`git commit` 或 `git stash`）
 - [ ] `python3 -m py_compile mac_ai_monitor.py` 语法通过
 - [ ] `./dev.sh status` + `./dev.sh health` 服务运行正常
@@ -303,6 +303,7 @@ curl -s http://127.0.0.1:8849/api/data | python3 -m json.tool
 
 | 版本 | 日期 | 变更 |
 |------|------|------|
+| v2.15.0 | 2026-06-04 | 行号校准 (L23→L25, L119→L147, L328→L332 等)、版本号同步 v2.15.0 |
 | v2.14.0 | 2026-05-23 | 新增：起飞前检查、dev.sh命令参考、版本号时机说明、更新本文档提醒、回滚指南增强 |
 | v2.13.0 | 2026-05-23 | 新增：任务 Artifact 规范、回滚指南、决策树可视化 |
 | v2.12.0 | 2026-05-23 | 合并风险分层流程（简单/中等/大改动） |

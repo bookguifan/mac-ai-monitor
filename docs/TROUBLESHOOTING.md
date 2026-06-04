@@ -27,7 +27,7 @@
 | 页面空白/卡加载 | F12→Console 看报错，`curl /api/data` 检查返回 |
 | CSS/JS 修改不生效 | 检查是否用了内联 HTML_PAGE（见 QUICKSTART「修改前必读」） |
 | 首次API慢 | 正常，GPU预热~15s+CPU~5s，缓存后<100ms |
-| 活动显示"Session @" | 清缓存: `rm ~/.qclaw/.monitor_persistent_cache.json` 重启 |
+| 活动显示"Session @" | 清缓存: `rm ~/.qclaw/.monitor_persistent_cache.json` 重启（此缓存仍在 HOME 路径） |
 | 数据字段为None | `curl /api/data \| python3 -m json.tool` 查原始数据 |
 | 服务被signal 15杀 | 确认 `__main__` 有 `preexec_fn=os.setpgrp` |
 | 改坏了想回滚 | 见上方「回滚指南」 |
