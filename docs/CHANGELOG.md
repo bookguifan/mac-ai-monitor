@@ -5,6 +5,21 @@
 
 ---
 
+## v2.15.2 (2026-06-06)
+
+### 文档更新
+- API.md: 字段全面校准，与实际 API 返回完全对齐
+  - 新增字段: cpu.load_1m/5m/15m/history, mem.inactive_gb/speculative_gb/purgeable_gb/avail_pct/history, disk.available/history, swap.used_pct/history, net.interface/connections_est/listen/timewait, disk_io.iops, battery.charging/status_cn, thresholds, processes, network_history, run_path, tool_stats
+  - 移除不存在的字段: mem.app_gb/compressed_gb/swap_gb, net.connections/ngrok/rx_total_mb/tx_total_mb, battery.status/time_left
+  - Gateway 字段重写: count/merged_count/idle_count/health_score/models/instances/merged/idle_instances (替代旧 pids/ports/procs/idle/health)
+  - 新增 gateway.instances 和 gateway.merged 子字段完整文档
+  - skills 字段按软件分组（QClaw/AutoClaw/JVS + 内置/自定义）
+- ARCHITECTURE.md: 补录 Inject thresholds + None 标准化模块
+- README.md: index.html 行数 46→50
+- 清理备份文件: QUICKSTART.md.backup, mac_ai_monitor.py.bak
+
+---
+
 ## v2.15.1 (2026-06-04)
 
 ### Bug 修复

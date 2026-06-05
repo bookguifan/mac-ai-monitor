@@ -1,7 +1,7 @@
 # Mac AI Monitor — 代码架构
 
 > 行号级架构参考，改代码前先查这里
-> **版本**: v2.15.1 | **更新**: 2026-06-04
+> **版本**: v2.15.2 | **更新**: 2026-06-04
 
 ---
 
@@ -222,7 +222,7 @@ collect_all()
 | AutoClaw | `autoclaw` | AutoClaw Gateway | P1 |
 | JVS | `jvs`/`JVS` (排除python/relay) | JVS Claw | P1 |
 
-**端口捕获流程** (v2.15.1 改进):
+**端口捕获流程** (v2.15.2 改进):
 1. `ps aux` 预扫描 → 按5规则找到所有 Gateway PID 集合 (`_gw_pid_set`)
 2. `lsof` LISTEN 行 → 按 PID 匹配端口（解决 CLI 进程在 lsof 中显示为 `node` 的问题）
 3. IPv6 端口解析：正则优先匹配 `:(\d+)\s+\(LISTEN`，避免 `[::1]:18789` 误解析为端口 `1`

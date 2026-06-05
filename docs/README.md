@@ -1,7 +1,7 @@
 # Mac AI Monitor
 
 > macOS AI 网关监控系统 — CPU/内存/磁盘/网络/Gateway/会话/技能 一览
-> **版本**: v2.15.1 | **更新**: 2026-06-04
+> **版本**: v2.15.2 | **更新**: 2026-06-04
 
 ---
 
@@ -38,7 +38,7 @@ nohup python3 mac_ai_monitor.py > data/logs/monitor_stdout.log 2>&1 &
 ```
 mac_ai_monitor/
 ├── mac_ai_monitor.py      # 主程序 (2782行)
-├── index.html             # HTML 骨架 (46行)
+├── index.html             # HTML 骨架 (50行)
 ├── dev.sh                 # 开发工具链 (watch/restart/status/commit)
 ├── data/                  # 运行时数据 (gitignored)
 │   ├── alerts.json        # 告警状态
