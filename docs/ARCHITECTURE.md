@@ -45,6 +45,7 @@
   L753   # ---- Gateway Detection (from ps_procs + lsof) ----
   L898   # ---- Gateway: 按软件名合并 + 性能指标 ----
   L984   # ---- Trigger Alerts ----
+  L996   # ---- Inject thresholds + normalize None fields ----
   L1001  # ---- Data Directories ----
   L1046  # ---- Cron ----
   L1085  # ---- Skills ----
@@ -182,6 +183,7 @@ collect_all()
   ├── Ports                                             — lsof + KNOWN_PORTS
   ├── Gateway Detection (5规则 + PID反查端口 + PPID链)   — 合并+性能指标+健康评分
   ├── Alerts                                            — 自动告警
+  ├── Thresholds + None 标准化                           — 注入阈值+清理空值
   ├── Data Directories (ThreadPoolExecutor 并发, 5min缓存) — du -sk
   ├── Cron                                              — 4路径 jobs.json
   ├── Skills (5min缓存)                                 — 3级目录扫描
