@@ -5,7 +5,29 @@
 
 ---
 
-## v2.15.2 (2026-06-06)
+## v2.15.3 (2026-06-06)
+
+### Bug 修复（P0 功能性）
+- CSV 导出: 修复 `data.get('memory')` 键名错误 → `data.get('mem')`，Memory Used 不再恒为 0
+- CSV 导出: 修复 `data.get('health_score')` 路径错误 → `data.get('gateway',{}).get('health_score')`
+- Gateway 日志: 新增 `/api/gateway-log` 端点实现（前端按钮之前调用的端点未实现，始终 404）
+- 标准健康端点: 新增 `/api/status` 端点（UptimeRobot 兼容）
+- 前端兼容: Python 同时返回 `script_path` 和 `run_path`，前端页脚不再空白
+
+### 线程安全加固（P1）
+- `_cache_lock`: 之前在模块定义但全文从未使用，现对 `/api/data` 缓存读写加锁
+- `_history_lock`: `_history` deque 在 `collect_all()` 末尾无锁修改，并发请求可能导致数据错乱，已加锁
+- `_alert_lock`: `send_alert()` 中 `try_json` → `json.dump` 之间有竞态条件，并发请求可能绕过冷却机制重复通知，已加锁
+
+### 业务逻辑优化（P1）
+- Gateway 离线告警: 新增 30 秒冷启动保护，避免服务刚启动时误报
+- `/health` 端点: 冷启动期间返回 HTTP 200 + `warming` 状态，避免 UptimeRobot 误判 Down
+- HTML_PAGE 备用模板: title 版本号 v2.11.0 → v2.15.3
+- `import requests`: 从 for 循环内部移到模块级导入，加 `ImportError` fallback
+- `urllib.request`: 从 `send_alert()` 内部移到模块级导入
+
+### 代码质量（P2）
+- `try_json()` / `send_alert()` / `config_hashes` 写入: 所有 `open()` 统一加 `encoding='utf-8'`
 
 ### 文档更新
 - API.md: 字段全面校准，与实际 API 返回完全对齐

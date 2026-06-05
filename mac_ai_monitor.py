@@ -4,10 +4,14 @@ Mac AI Monitor v2.0 — OpenClaw AI 服务监控面板
 纯 JS 渲染，手动刷新，单文件部署，零外部依赖。
 """
 
-import os, json, subprocess, re, time, datetime, logging, threading
+import os, json, subprocess, re, time, datetime, logging, threading, urllib.request
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from socketserver import ThreadingMixIn
 from collections import deque
+try:
+    import requests
+except ImportError:
+    requests = None  # optional dependency for Gateway perf metrics
 
 # ====== Config ======
 PORT          = 8849
@@ -22,7 +26,7 @@ HOME          = os.path.expanduser('~')
 SCRIPT_DIR    = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR      = os.path.join(SCRIPT_DIR, 'data')
 LOG_FILE      = os.path.join(DATA_DIR, 'logs', 'monitor.log')
-__version__   = '2.15.2'
+__version__   = '2.15.3'
 ALERT_FILE    = os.path.join(DATA_DIR, 'alerts.json')
 ALERT_COOLDOWN = 1800  # 30 分钟相同告警不重复
 ALERT_CONFIG_FILE = os.path.join(DATA_DIR, 'alert_config.json')
@@ -60,9 +64,12 @@ _history = {k: deque(maxlen=HISTORY_SIZE) for k in ['cpu','mem','disk','swap','n
 _cache   = {'data': None, 'ts': 0}
 _net_s   = {'rx': 0, 'tx': 0, 'ts': 0}
 _gpu_cache_store = {'gpus': [], 'ts': 0}
+_boot_ts = time.time()  # 服务启动时间戳，用于冷启动保护
 _cpu_lock = threading.Lock()
 _gpu_lock = threading.Lock()
 _cache_lock = threading.Lock()
+_history_lock = threading.Lock()
+_alert_lock = threading.Lock()
 
 # ====== Utilities ======
 
@@ -141,17 +148,22 @@ def fmt_uptime(sec):
 
 def try_json(path):
     try:
-        with open(path) as f: return json.load(f)
+        with open(path, encoding='utf-8') as f: return json.load(f)
     except Exception: return {}
 
 def send_alert(title, message, alert_key=''):
     """macOS 系统通知 + 飞书 webhook 推送，带冷却机制避免频繁打扰"""
     try:
         now = time.time()
-        alerts = try_json(ALERT_FILE)
-        last_sent = alerts.get(alert_key, {}).get('last_sent', 0)
-        if alert_key and (now - last_sent) < ALERT_COOLDOWN:
-            return  # 冷却期内不重复通知
+        with _alert_lock:
+            alerts = try_json(ALERT_FILE)
+            last_sent = alerts.get(alert_key, {}).get('last_sent', 0)
+            if alert_key and (now - last_sent) < ALERT_COOLDOWN:
+                return  # 冷却期内不重复通知
+            # 提前记录发送时间(防止并发重复发送)
+            if alert_key:
+                alerts[alert_key] = {'last_sent': now, 'message': message}
+                with open(ALERT_FILE, 'w', encoding='utf-8') as f: json.dump(alerts, f)
         # 发送系统通知
         cmd = f'''osascript -e 'display notification "{message}" with title "{title}"' '''
         subprocess.run(cmd, shell=True, capture_output=True, timeout=5)
@@ -161,11 +173,10 @@ def send_alert(title, message, alert_key=''):
         _wh_file = os.path.join(DATA_DIR, 'feishu_webhook')
         try:
             if os.path.exists(_wh_file):
-                _feishu_webhook = open(_wh_file).read().strip()
+                _feishu_webhook = open(_wh_file, encoding='utf-8').read().strip()
         except Exception: pass
         if _feishu_webhook and _feishu_webhook.startswith('http'):
             try:
-                import urllib.request
                 _payload = json.dumps({'title': title, 'text': message}).encode('utf-8')
                 _req = urllib.request.Request(_feishu_webhook, data=_payload, headers={'Content-Type': 'application/json'})
                 with urllib.request.urlopen(_req, timeout=5) as _resp: pass
@@ -173,10 +184,6 @@ def send_alert(title, message, alert_key=''):
             except Exception as _e:
                 logging.warning(f'Feishu alert failed: {_e}')
         
-        # 记录发送时间
-        if alert_key:
-            alerts[alert_key] = {'last_sent': now, 'message': message}
-            with open(ALERT_FILE, 'w') as f: json.dump(alerts, f)
         logging.info(f'alert sent: {title} - {message}')
     except Exception as e:
         logging.warning(f'send_alert failed: {e}')
@@ -361,7 +368,7 @@ def collect_all():
     # Save hashes for next comparison
     try:
         os.makedirs(os.path.dirname(ALERT_FILE), exist_ok=True)
-        with open(os.path.join(DATA_DIR, 'config_hashes.json'), 'w') as f:
+        with open(os.path.join(DATA_DIR, 'config_hashes.json'), 'w', encoding='utf-8') as f:
             json.dump(prev_hashes, f)
     except Exception: pass
     data['config_changes'] = config_changes
@@ -911,9 +918,8 @@ def collect_all():
         
         # Try to fetch performance metrics from Gateway API
         port = g.get('port', '—')
-        if port and port.isdigit() and 'perf' not in d['perf']:
+        if port and port.isdigit() and 'perf' not in d['perf'] and requests:
             try:
-                import requests
                 resp = requests.get(f'http://127.0.0.1:{port}/v1/status', timeout=1)
                 if resp.status_code == 200:
                     status_data = resp.json()
@@ -982,7 +988,8 @@ def collect_all():
         'health_score': max(hs, 0)}
     
     # ---- Trigger Alerts ----
-    if not gateways:
+    _cold_boot = (time.time() - _boot_ts) < 30  # 启动 30 秒内不触发离线告警
+    if not gateways and not _cold_boot:
         send_alert('🚨 Gateway 离线', '所有 Gateway 实例已停止运行', 'gw_offline')
     if data_cpu.get('used_pct', 0) > th['cpu']['alert']:
         send_alert('⚠️ CPU 使用率过高', f'CPU 使用率 {data_cpu["used_pct"]}%', 'cpu_high')
@@ -1445,14 +1452,15 @@ def collect_all():
     activity.sort(key=lambda x:(0 if x['group']=='今天' else (1 if x['group']=='昨天' else 2),-x['age_m']))
     data['activity'] = activity
     # ---- History ----
-    for k in ('cpu','mem','disk','swap'):
-        v = data.get(k,{}).get('used_pct',0)
-        _history[k].append(v)
-        data[k]['history'] = list(_history[k])
-    # Network history (TODO: track network rx/tx over time)
-    net_rx = data.get('net',{}).get('rx_kbps',0)
-    _history['net'].append({'rx': net_rx, 'tx': data['net'].get('tx_kbps',0)})
-    data['network_history'] = list(_history['net'])
+    with _history_lock:
+        for k in ('cpu','mem','disk','swap'):
+            v = data.get(k,{}).get('used_pct',0)
+            _history[k].append(v)
+            data[k]['history'] = list(_history[k])
+        # Network history
+        net_rx = data.get('net',{}).get('rx_kbps',0)
+        _history['net'].append({'rx': net_rx, 'tx': data['net'].get('tx_kbps',0)})
+        data['network_history'] = list(_history['net'])
 
     data['timestamp'] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     return data
@@ -1464,7 +1472,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Mac AI Monitor v2.11.0 (2026-05-22 21:40)</title>
+<title>Mac AI Monitor v2.15.3</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -2525,12 +2533,20 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == '/health':
-            # Health check endpoint
+            # Health check endpoint (UptimeRobot-compatible)
             try:
                 data = _cache.get('data') or {}
                 gw_count = data.get('gateway', {}).get('count', 0) if isinstance(data, dict) else 0
-                status = 'ok' if gw_count > 0 else 'degraded'
-                code = 200 if status == 'ok' else 503
+                warming = (time.time() - _boot_ts) < 30 and not _cache.get('data')
+                if warming:
+                    status = 'warming'
+                    code = 200  # 冷启动期间不返回非 200，避免 UptimeRobot 误报
+                elif gw_count > 0:
+                    status = 'ok'
+                    code = 200
+                else:
+                    status = 'degraded'
+                    code = 503
                 body = json.dumps({'status': status, 'version': __version__, 'gateway_count': gw_count}).encode()
                 self.send_response(code)
                 self.send_header('Content-Type', 'application/json')
@@ -2546,24 +2562,29 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(body)
         elif self.path == '/api/data':
             now = time.time()
-            if _cache.get('data') and now - _cache.get('ts', 0) < CACHE_TTL:
-                data = _cache['data']
-            else:
+            with _cache_lock:
+                cache_hit = (_cache.get('data') and now - _cache.get('ts', 0) < CACHE_TTL)
+                if cache_hit:
+                    data = _cache['data']
+            if not cache_hit:
                 try:
                     data = collect_all()
                     data['version'] = __version__
                     data['run_path'] = SCRIPT_FILE
-                    _cache['data'] = data
-                    _cache['ts'] = now
+                    data['script_path'] = SCRIPT_FILE  # 兼容旧前端引用
+                    with _cache_lock:
+                        _cache['data'] = data
+                        _cache['ts'] = now
                 except Exception as e:
                     logging.error(f'collect_all: {e}')
                     # 部分成功策略：返回上次缓存，附上本次异常信息
-                    if _cache.get('data'):
-                        data = dict(_cache['data'])
-                        data['error'] = str(e)
-                        data['timestamp'] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                    else:
-                        data = {'error': str(e), 'version': __version__}
+                    with _cache_lock:
+                        if _cache.get('data'):
+                            data = dict(_cache['data'])
+                            data['error'] = str(e)
+                            data['timestamp'] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        else:
+                            data = {'error': str(e), 'version': __version__}
             body = json.dumps(data, ensure_ascii=False).encode('utf-8')
             self.send_response(200)
             self.send_header('Content-Type', 'application/json; charset=utf-8')
@@ -2584,6 +2605,59 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             try: self.wfile.write(body)
             except BrokenPipeError: pass
+        elif self.path == '/api/gateway-log':
+            # Return Gateway log (latest N lines)
+            import urllib.parse
+            qs = urllib.parse.urlparse(self.path).query
+            params = urllib.parse.parse_qs(qs)
+            lines = int(params.get('lines', [50])[0])
+            grep = params.get('grep', [None])[0]
+            log_content = ''
+            gateways = (_cache.get('data') or {}).get('gateway', {})
+            for inst in (gateways.get('instances') or []) + (gateways.get('merged') or []):
+                try:
+                    cpath = inst.get('config_path', '')
+                    if cpath:
+                        log_dir = os.path.join(os.path.dirname(cpath), '..', 'logs')
+                        if os.path.isdir(log_dir):
+                            for fname in sorted(os.listdir(log_dir), reverse=True):
+                                if fname.endswith('.log'):
+                                    with open(os.path.join(log_dir, fname), 'r', errors='replace') as lf:
+                                        log_content += f'\n=== {inst.get("name","?")} / {fname} ===\n'
+                                        log_content += ''.join(lf.readlines()[-lines:])
+                except Exception: pass
+            if not log_content:
+                log_content = '暂无 Gateway 日志\n（Gateway 配置路径不可用或日志目录不存在）'
+            body = json.dumps({'log': log_content, 'lines': lines, 'grep': grep}, ensure_ascii=False).encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.send_header('Cache-Control', 'no-cache')
+            self.end_headers()
+            try: self.wfile.write(body)
+            except BrokenPipeError: pass
+        elif self.path == '/api/status':
+            # Standardized health endpoint (UptimeRobot-compatible)
+            gw_count = 0
+            hs = 100
+            with _cache_lock:
+                if _cache.get('data'):
+                    gw = _cache['data'].get('gateway', {})
+                    gw_count = gw.get('count', 0)
+                    hs = gw.get('health_score', 100)
+            status = 'ok' if gw_count > 0 else 'warming'
+            body = json.dumps({
+                'status': status,
+                'version': __version__,
+                'gateway_count': gw_count,
+                'health_score': hs,
+                'uptime_seconds': int(time.time() - (_cache.get('data') or {}).get('_boot_ts', time.time())),
+            }, ensure_ascii=False).encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.send_header('Cache-Control', 'no-cache')
+            self.end_headers()
+            try: self.wfile.write(body)
+            except BrokenPipeError: pass
         elif self.path.startswith('/api/export'):
             # Export current snapshot as JSON or CSV
             fmt = 'json'
@@ -2597,7 +2671,7 @@ class Handler(BaseHTTPRequestHandler):
                 w.writerow(['metric','value','unit'])
                 def row(k,v,u=''): w.writerow([k,v,u])
                 cpu = data.get('cpu',{})
-                mem = data.get('memory',{})
+                mem = data.get('mem',{})
                 dsk = data.get('disk',{})
                 swp = data.get('swap',{})
                 bat = data.get('battery',{})
@@ -2611,7 +2685,7 @@ class Handler(BaseHTTPRequestHandler):
                 row('Battery Charging', bat.get('charging', False), '')
                 gw = data.get('gateway',{})
                 row('Gateway Count', gw.get('count', 0), '')
-                row('Health Score', data.get('health_score', 0), '')
+                row('Health Score', gw.get('health_score', 0), '')
                 # Top processes
                 for i,p in enumerate((data.get('processes') or {}).get('top_cpu',[])[:5]):
                     row(f'TopCPU_{i+1}', f"{p.get('name','?')} ({p.get('cpu',0):.1f}%)", '')
