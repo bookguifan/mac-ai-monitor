@@ -69,38 +69,83 @@ function sparkline(vals, w=200, h=30, color='#00cfff'){
 }
 
 // ====== uPlot Historical Chart ======
-function renderHistChart(d){
-  if(!window.uPlot||!d) return '';
-  const cpu=d.cpu?.history||[], mem=d.mem?.history||[], disk=d.disk?.history||[];
-  if(cpu.length<2) return '<div class="hist-panel"><div class="hist-card"><div class="hist-title">📈 历史趋势</div><div style="color:var(--text3);font-size:12px">暂无数据...</div></div></div>';
-  
-  const timestamps=Array.from({length:cpu.length},(_,i)=>i*5);// Assume 5s interval
-  const series=[
-    {label:'CPU',color:'var(--accent)'},
-    {label:'内存',color:'var(--green)'},
-    {label:'磁盘',color:'var(--orange)'}
-  ];
-  
-  const opts={
-    title:'',legend:{show:true,labels:series.map(s=>s.label)},
-    width:document.getElementById('hist-chart')?.offsetWidth||600,height:250,
-    scales:{x:{time:false},y:{auto:true,range:(min,max)=>[0,100]}},
-    series:[
-      {},
-      {label:'CPU',stroke:'var(--accent)',width:2,fill:'rgba(0,207,255,0.1)'},
-      {label:'内存',stroke:'var(--green)',width:2,fill:'rgba(61,214,140,0.1)'},
-      {label:'磁盘',stroke:'var(--orange)',width:2,fill:'rgba(255,179,71,0.1)'}
-    ],
-    axes:[{stroke:'var(--text3)',grid:{stroke:'var(--border)',width:1}},{stroke:'var(--text3)',grid:{stroke:'var(--border)',width:1},values:(u,v)=>v.toFixed(0)+'%'}]
-  };
-  
-  const data=[timestamps,cpu.map(c=>c.used_pct||0),mem.map(m=>m.used_pct||0),disk.map(d=>d.used_pct||0)];
-  
-  // Render into div
-  return `<div class="hist-panel"><div class="hist-card"><div class="hist-title">📈 历史趋势 (最近${cpu.length}个点)</div><div id="hist-chart"></div></div></div>`;
+let _histRange = '6h';
+let _histChart = null;
+
+function renderHistChart(d) {
+  // 返回图表容器 HTML（异步获取数据）
+  return '<div class="hist-panel"><div class="hist-card">' +
+    '<div class="hist-title">📈 历史趋势</div>' +
+    '<div class="hist-range">' +
+      ['1h','6h','24h','7d'].map(function(r) {
+        return '<button class="hist-rbtn' + (_histRange===r?' active':'') + '" data-range="'+r+'">'+r+'</button>';
+      }).join('') +
+    '</div>' +
+    '<div id="hist-chart" style="width:100%;height:280px"></div>' +
+  '</div></div>';
 }
 
-let _histChartInit=false;
+async function initHistChart() {
+  if (!window.uPlot) return;
+  var url = '/api/history?range=' + _histRange;
+  try {
+    var r = await fetch(url);
+    if (!r.ok) return;
+    var h = await r.json();
+    if (!h.timestamps || h.timestamps.length < 2) {
+      var el = document.getElementById('hist-chart');
+      if (el) el.innerHTML = '<div style="color:var(--text3);font-size:12px;text-align:center;padding:40px">⏳ 收集数据中...需要 1-2 分钟建立历史</div>';
+      return;
+    }
+    // 用时间戳的偏移(相对于第一个)作为 x 轴
+    var t0 = h.timestamps[0];
+    var x = h.timestamps.map(function(t) { return t - t0; });
+    var opts = {
+      width: document.getElementById('hist-chart')?.offsetWidth || 600, height: 280,
+      cursor: { show: true, drag: { x: true, y: false } },
+      legend: { show: true },
+      scales: { x: { time: false }, y: { auto: true, range: function(min,max) { return [0, Math.min(100, max+10)]; } } },
+      series: [
+        {},
+        { label: 'CPU %', stroke: 'var(--accent)', width: 2, fill: 'rgba(0,207,255,0.08)' },
+        { label: '内存 %', stroke: 'var(--green)', width: 2, fill: 'rgba(61,214,140,0.08)' },
+        { label: '磁盘 %', stroke: 'var(--orange)', width: 2, fill: 'rgba(255,179,71,0.08)' },
+        { label: 'Swap %', stroke: '#ff6b9d', width: 2, fill: 'rgba(255,107,157,0.08)' },
+        { label: '健康分', stroke: '#c084fc', width: 1.5, scale: 'y2' }
+      ],
+      axes: [
+        { stroke: 'var(--text3)', grid: { stroke: 'var(--border)', width: 1 },
+          values: function(u, vals, space) { return vals.map(function(v) { return fmtDuration(v); }); } },
+        { stroke: 'var(--text3)', grid: { stroke: 'var(--border)', width: 1 },
+          values: function(u, v) { return v.toFixed(0) + '%'; } },
+        { stroke: '#c084fc', grid: { show: false }, side: 1, values: function(u,v) { return v.toFixed(0); } }
+      ]
+    };
+    var data = [x, h.cpu, h.mem, h.disk, h.swap, h.health_score];
+    if (_histChart) _histChart.destroy();
+    _histChart = new uPlot(opts, data, document.getElementById('hist-chart'));
+  } catch (e) { console.error('histChart:', e); }
+}
+
+function fmtDuration(sec) {
+  if (sec < 60) return sec + 's';
+  if (sec < 3600) return (sec/60).toFixed(0) + 'm';
+  if (sec < 86400) return (sec/3600).toFixed(1) + 'h';
+  return (sec/86400).toFixed(1) + 'd';
+}
+
+// click handlers for range buttons (delegated)
+function _setupHistRangeBtns() {
+  var btns = document.querySelectorAll('.hist-rbtn');
+  btns.forEach(function(btn) {
+    btn.onclick = function() {
+      _histRange = btn.dataset.range;
+      btns.forEach(function(b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      initHistChart();
+    };
+  });
+}
 
 // ====== Donut Gauge SVG ======
 function donut(pct, size=100, stroke=8, color='#3dd68c'){
@@ -400,44 +445,52 @@ function render(d){
     </div>
   </div>`;
 
-  // --- Health Summary Bar ---
+  // --- Health Score Breakdown (uses actual thresholds) ---
   const hs=gw.health_score||0;
-  const sys_cpu_p=sys.cpu_p||1;
-  const sys_mem_p=sys.mem_p||1;
-  const sys_disk_p=sys.disk_p||1;
-  const sys_swp_p=sys.swp_p||1;
+  const th = d.thresholds || {};
+  const th_cpu = th.cpu?.health || 80;
+  const th_mem = th.mem?.health || 40;
+  const th_disk = th.disk?.health || 85;
+  const th_swap = th.swap?.health || 50;
   const load1=cpu.load_1m||0;
   const cores=cpu.cores||sys.cpu_p||1;
   const load_ratio=cores>0?(load1/cores).toFixed(2):'—';
   const hs_c=hs>=80?'var(--green)':hs>=50?'var(--orange)':'var(--red)';
-  const hs_parts=[]; // health score breakdown for tooltip
-  if(!gw.count) hs_parts.push('无Gateway -35');
-  if(gw.idle_count) hs_parts.push('闲置Gateway -10');
-  if(cpu_p>85) hs_parts.push('CPU '+cpu_p+'% -10');
-  if(mem_p>90) hs_parts.push('内存 '+mem_p+'% -15');
-  if(disk_p>90) hs_parts.push('磁盘 '+disk_p+'% -10');
-  if(swp_p>80) hs_parts.push('Swap '+swp_p+'% -10');
-  if(cores>0&&load1/cores>2) hs_parts.push('负载 '+load_ratio+' -10');
-  const hs_tip=hs_parts.length?'影响因子:\n'+hs_parts.join('\n'):'所有指标正常';
+  const diag = [];
+  const pushDiag = (reason, pts) => diag.push({reason, pts});
+  if(!gw.count) pushDiag('无 Gateway 实例运行', -35);
+  if(gw.idle_count) pushDiag('闲置 Gateway('+gw.idle_count+'个)', -10);
+  if(cpu_p > th_cpu) pushDiag('CPU '+cpu_p+'% > '+th_cpu+'%', -10);
+  if(mem_p > th_mem) pushDiag('内存 '+mem_p+'% > '+th_mem+'%', -15);
+  if(disk_p > th_disk) pushDiag('磁盘 '+disk_p+'% > '+th_disk+'%', -10);
+  if(swp_p > th_swap) pushDiag('Swap '+swp_p+'% > '+th_swap+'%', -10);
+  if(cores>0&&load1/cores>2) pushDiag('负载 '+load_ratio+' > 2.0', -10);
+  const diagHtml = diag.length ? diag.map(p =>
+    '<div class="diag-item"><span class="diag-reason">⚠ '+esc(p.reason)+'</span><span class="diag-pts">'+p.pts+'</span></div>'
+  ).join('') : '<div class="diag-item" style="color:var(--green)">✓ 所有指标正常</div>';
   const gw_run=gw.count||0; const gw_idle=gw.idle_count||0;
   const cron_list=d.cron||[]; const cron_active=cron_list.filter(c=>c.enabled!==false).length;
-  html+=`<div class="hbar"><div class="card hb-card">
-      <div class="hb-num" style="color:${hs_c};cursor:help" title="${hs_tip}">${hs}</div>
-      <div><div class="hb-label">健康评分</div><div class="hb-sub">${hs>=80?'状态良好':hs>=50?'需要关注':'异常'}</div></div>
-    </div>
-    <div class="card hb-card">
-      <div class="hb-num" style="color:${gw_run>0?'var(--green)':'var(--red)'}">${gw_run}</div>
-      <div><div class="hb-label">Gateway</div><div class="hb-sub">${gw_run}运行${gw_idle?' · '+gw_idle+'闲置':''}</div></div>
-    </div>
-    <div class="card hb-card">
-      <div class="hb-num" style="color:var(--accent)">${cron_active}</div>
-      <div><div class="hb-label">定时任务</div><div class="hb-sub">${cron_list.length}总${cron_active?' · '+cron_active+'活跃':''}</div></div>
-    </div>
-    <div class="card hb-card">
-      <div class="hb-num" style="color:${alert_n===0?'var(--green)':'var(--orange)'}">${alert_n}</div>
-      <div><div class="hb-label">活跃告警</div><div class="hb-sub">${alert_n===0?'一切正常':alert_n+'项需关注'}</div></div>
-    </div>
-  </div>`;
+  html+='<div class="hbar"><div class="card hb-card diag-trigger" onclick="document.getElementById(\'diag-panel\').classList.toggle(\'open\');this.querySelector(\'.diag-arrow\').classList.toggle(\'rotated\')">' +
+      '<div class="hb-num" style="color:'+hs_c+'">'+hs+'<span class="diag-arrow">▼</span></div>' +
+      '<div><div class="hb-label">健康评分</div><div class="hb-sub">'+(hs>=80?'状态良好':hs>=50?'需要关注':'异常')+'</div></div>' +
+    '</div>';
+  html+='<div class="card hb-card">' +
+      '<div class="hb-num" style="color:'+(gw_run>0?'var(--green)':'var(--red)')+'">'+gw_run+'</div>' +
+      '<div><div class="hb-label">Gateway</div><div class="hb-sub">'+gw_run+'运行'+(gw_idle?' · '+gw_idle+'闲置':'')+'</div></div>' +
+    '</div>' +
+    '<div class="card hb-card">' +
+      '<div class="hb-num" style="color:var(--accent)">'+cron_active+'</div>' +
+      '<div><div class="hb-label">定时任务</div><div class="hb-sub">'+cron_list.length+'总'+(cron_active?' · '+cron_active+'活跃':'')+'</div></div>' +
+    '</div>' +
+    '<div class="card hb-card">' +
+      '<div class="hb-num" style="color:'+(alert_n===0?'var(--green)':'var(--orange)')+'">'+alert_n+'</div>' +
+      '<div><div class="hb-label">活跃告警</div><div class="hb-sub">'+(alert_n===0?'一切正常':alert_n+'项需关注')+'</div></div>' +
+    '</div>' +
+  '</div>' +
+  '<div id="diag-panel" class="diag-panel">' +
+    '<div class="diag-title">🔍 健康诊断</div>' +
+    diagHtml +
+  '</div>';
   const gpu_list=sys.gpu||[];
   html+=`<div class="row row-3">
     <div class="card">
@@ -898,36 +951,19 @@ function render(d){
   // P2-5: Restore collapsible panels from localStorage
   _restoreCollapsed();
 
-  // Historical Chart (uPlot)
-  if(!_histChartInit){
-    const histEl=document.getElementById('hist-chart-insert');
-    if(histEl){
-      const container=document.createElement('div');
-      container.id='hist-chart';
-      container.style.width='100%';
-      container.style.height='250px';
-      histEl.appendChild(container);
-      if(window.uPlot && d.cpu?.history?.length>1){
-        const cpu=d.cpu.history.map(c=>c.used_pct||0);
-        const mem=d.mem.history.map(m=>m.used_pct||0);
-        const disk=d.disk.history.map(d=>d.used_pct||0);
-        const len=cpu.length;
-        const timestamps=Array.from({length:len},(_,i)=>i*5);
-        new uPlot({
-          title:'',legend:{show:true},
-          width:container.offsetWidth||600,height:230,
-          scales:{x:{time:false},y:{auto:true,range:[0,100]}},
-          series:[
-            {},
-            {label:'CPU','stroke':'var(--accent)',width:2,fill:'rgba(0,207,255,0.1)'},
-            {label:'内存','stroke':'var(--green)',width:2,fill:'rgba(61,214,140,0.1)'},
-            {label:'磁盘','stroke':'var(--orange)',width:2,fill:'rgba(255,179,71,0.1)'}
-          ],
-          axes:[{stroke:'var(--text3)',grid:{stroke:'var(--border)',width:1}},{stroke:'var(--text3)',grid:{stroke:'var(--border)',width:1},values:(u,v)=>v.toFixed(0)+'%'}]
-        }, [timestamps,cpu,mem,disk], container);
-        _histChartInit=true;
-      }
+  // Historical Chart (async from SQLite)
+  var histEl = document.getElementById('hist-chart-insert');
+  if (histEl) {
+    var chartDiv = document.getElementById('hist-chart');
+    if (!chartDiv) {
+      chartDiv = document.createElement('div');
+      chartDiv.id = 'hist-chart';
+      chartDiv.style.width = '100%';
+      chartDiv.style.height = '280px';
+      histEl.appendChild(chartDiv);
     }
+    initHistChart();
+    _setupHistRangeBtns();
   }
 
   // Footer
@@ -1081,9 +1117,19 @@ let _autoInterval = null;
 let _countdown = null;
 let _lastRefreshMs = 0;
 
-const REFRESH_OPTIONS = [{label:'5s',ms:5000},{label:'10s',ms:10000},{label:'15s',ms:15000},{label:'30s',ms:30000},{label:'60s',ms:60000}];
-let _refreshMs = parseInt(localStorage.getItem('monitor_refresh_ms')) || 30000;
-const AUTO_INTERVAL_MS = () => _refreshMs;
+const REFRESH_OPTIONS = [{label:'智能',ms:0},{label:'5s',ms:5000},{label:'10s',ms:10000},{label:'15s',ms:15000},{label:'30s',ms:30000},{label:'60s',ms:60000}];
+let _refreshMs = parseInt(localStorage.getItem('monitor_refresh_ms')) || 0;
+const _smartBase = () => {
+  // 智能刷新: 基于 CPU 负载动态调整
+  if (!_data) return 30000;
+  const cpu = _data.cpu?.used_pct || 0;
+  if (cpu > 90) return 10000;
+  if (cpu > 70) return 15000;
+  return 30000;
+};
+const AUTO_INTERVAL_MS = () => _refreshMs === 0 ? _smartBase() : _refreshMs;
+// 默认智能模式下 base interval
+let _curSmartInterval = 30000;
 const MANUAL_FETCH_LITE = true;     // Manual模式优先读取轻量端点
 
 // ---- Header 状态刷新 ----
@@ -1091,9 +1137,11 @@ function updateRefreshStatus() {
   const el = $('#refresh-status');
   if (!el) return;
   if (_autoRefresh) {
-    const left = Math.max(0, _refreshMs - (Date.now() - _lastRefreshMs));
+    const curMs = _refreshMs === 0 ? _curSmartInterval : _refreshMs;
+    const left = Math.max(0, curMs - (Date.now() - _lastRefreshMs));
     const sec = Math.ceil(left / 1000);
-    el.textContent = sec + 's';
+    const prefix = _refreshMs === 0 ? '⚡' : '';
+    el.textContent = prefix + sec + 's';
     el.style.color = left < 10000 ? 'var(--orange)' : 'var(--text3)';
   } else {
     const ago = Math.round((Date.now() - _lastRefreshMs) / 1000);
@@ -1127,9 +1175,19 @@ function toggleAutoRefresh() {
 function startAutoRefresh() {
   stopAutoRefresh();
   _lastRefreshMs = Date.now();
-  _autoInterval = setInterval(() => silentLoad(), _refreshMs);
-  // 每秒更新倒计时
-  _countdown = setInterval(updateRefreshStatus, 1000);
+  const ms = AUTO_INTERVAL_MS();
+  _curSmartInterval = ms;
+  _autoInterval = setInterval(() => silentLoad(), ms);
+  _countdown = setInterval(() => {
+    // 智能模式动态检查并调整间隔
+    const newMs = AUTO_INTERVAL_MS();
+    if (_autoRefresh && newMs !== _curSmartInterval) {
+      _curSmartInterval = newMs;
+      clearInterval(_autoInterval);
+      _autoInterval = setInterval(() => silentLoad(), newMs);
+    }
+    updateRefreshStatus();
+  }, 1000);
 }
 
 function stopAutoRefresh() {

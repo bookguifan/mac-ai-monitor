@@ -4,7 +4,7 @@ Mac AI Monitor v2.0 — OpenClaw AI 服务监控面板
 纯 JS 渲染，手动刷新，单文件部署，零外部依赖。
 """
 
-import os, json, subprocess, re, time, datetime, logging, threading, urllib.request
+import os, json, subprocess, re, time, datetime, logging, threading, urllib.request, sqlite3
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from socketserver import ThreadingMixIn
 from collections import deque
@@ -26,7 +26,7 @@ HOME          = os.path.expanduser('~')
 SCRIPT_DIR    = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR      = os.path.join(SCRIPT_DIR, 'data')
 LOG_FILE      = os.path.join(DATA_DIR, 'logs', 'monitor.log')
-__version__   = '2.15.3'
+__version__   = '2.16.0'
 ALERT_FILE    = os.path.join(DATA_DIR, 'alerts.json')
 ALERT_COOLDOWN = 1800  # 30 分钟相同告警不重复
 ALERT_CONFIG_FILE = os.path.join(DATA_DIR, 'alert_config.json')
@@ -70,6 +70,55 @@ _gpu_lock = threading.Lock()
 _cache_lock = threading.Lock()
 _history_lock = threading.Lock()
 _alert_lock = threading.Lock()
+
+# ====== SQLite Timeseries DB ======
+TSDB_PATH = os.path.join(DATA_DIR, 'timeseries.db')
+TSDB_RETENTION = 7 * 86400  # 保留 7 天
+
+def _init_tsdb():
+    """初始化时序数据库和表结构"""
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with sqlite3.connect(TSDB_PATH) as conn:
+        conn.execute('''CREATE TABLE IF NOT EXISTS samples (
+            ts INTEGER PRIMARY KEY,
+            cpu_pct REAL, mem_pct REAL, disk_pct REAL, swap_pct REAL,
+            health_score INTEGER, gateway_count INTEGER,
+            load_1m REAL, net_rx_kbps REAL, net_tx_kbps REAL
+        )''')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_samples_ts ON samples(ts)')
+        conn.commit()
+
+def _append_sample(data):
+    """将当前数据采样写入 SQLite"""
+    try:
+        cpu = data.get('cpu', {})
+        mem = data.get('mem', {})
+        disk = data.get('disk', {})
+        swap = data.get('swap', {})
+        net = data.get('net', {})
+        gw = data.get('gateway', {})
+        sys_info = data.get('system', {})
+        with sqlite3.connect(TSDB_PATH) as conn:
+            conn.execute('''INSERT OR REPLACE INTO samples
+                (ts, cpu_pct, mem_pct, disk_pct, swap_pct, health_score, gateway_count, load_1m, net_rx_kbps, net_tx_kbps)
+                VALUES (?,?,?,?,?,?,?,?,?,?)''',
+                (int(time.time()),
+                 cpu.get('used_pct', 0), mem.get('used_pct', 0),
+                 disk.get('used_pct', 0), swap.get('used_pct', 0),
+                 gw.get('health_score', 100), gw.get('count', 0),
+                 sys_info.get('load_1m', 0),
+                 net.get('rx_kbps', 0), net.get('tx_kbps', 0)))
+            conn.commit()
+        # 清理过期数据
+        cutoff = int(time.time()) - TSDB_RETENTION
+        with sqlite3.connect(TSDB_PATH) as conn:
+            conn.execute('DELETE FROM samples WHERE ts < ?', (cutoff,))
+            conn.commit()
+    except Exception as e:
+        logging.warning(f'_append_sample failed: {e}')
+
+# 初始化数据库
+_init_tsdb()
 
 # ====== Utilities ======
 
@@ -1463,6 +1512,10 @@ def collect_all():
         data['network_history'] = list(_history['net'])
 
     data['timestamp'] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    
+    # 时序采样写入 SQLite（异步不阻塞）
+    _append_sample(data)
+    
     return data
 
 
@@ -1472,7 +1525,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Mac AI Monitor v2.15.3</title>
+<title>Mac AI Monitor v2.16.0</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -2658,6 +2711,47 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             try: self.wfile.write(body)
             except BrokenPipeError: pass
+        elif self.path.startswith('/api/history'):
+            # 时序历史数据查询
+            import urllib.parse
+            qs = urllib.parse.urlparse(self.path).query
+            params = urllib.parse.parse_qs(qs)
+            range_h = params.get('range', ['6h'])[0]
+            # 解析时间范围
+            range_map = {'1h': 3600, '6h': 21600, '24h': 86400, '7d': 604800}
+            seconds = range_map.get(range_h, 21600)
+            cutoff = int(time.time()) - seconds
+            try:
+                with sqlite3.connect(TSDB_PATH) as conn:
+                    rows = conn.execute(
+                        'SELECT ts, cpu_pct, mem_pct, disk_pct, swap_pct, health_score, gateway_count, load_1m, net_rx_kbps, net_tx_kbps FROM samples WHERE ts >= ? ORDER BY ts ASC',
+                        (cutoff,)).fetchall()
+                history = {
+                    'timestamps': [r[0] for r in rows],
+                    'cpu': [r[1] for r in rows],
+                    'mem': [r[2] for r in rows],
+                    'disk': [r[3] for r in rows],
+                    'swap': [r[4] for r in rows],
+                    'health_score': [r[5] for r in rows],
+                    'gateway_count': [r[6] for r in rows],
+                    'load_1m': [r[7] for r in rows],
+                    'net_rx': [r[8] for r in rows],
+                    'net_tx': [r[9] for r in rows],
+                }
+                body = json.dumps(history, ensure_ascii=False).encode('utf-8')
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json; charset=utf-8')
+                self.send_header('Cache-Control', 'no-cache')
+                self.end_headers()
+                try: self.wfile.write(body)
+                except BrokenPipeError: pass
+            except Exception as e:
+                logging.warning(f'/api/history error: {e}')
+                body = json.dumps({'error': str(e)}).encode()
+                self.send_response(500)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(body)
         elif self.path.startswith('/api/export'):
             # Export current snapshot as JSON or CSV
             fmt = 'json'
