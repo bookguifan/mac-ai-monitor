@@ -7,6 +7,7 @@ Mac AI Monitor v2.0 — OpenClaw AI 服务监控面板
 import os, json, subprocess, re, time, datetime, logging, threading, urllib.request, sqlite3
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from socketserver import ThreadingMixIn
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import deque
 try:
     import requests
@@ -69,6 +70,7 @@ _cpu_lock = threading.Lock()
 _gpu_lock = threading.Lock()
 _cache_lock = threading.Lock()
 _history_lock = threading.Lock()
+_du_pool  = ThreadPoolExecutor(max_workers=3, thread_name_prefix='du')
 _alert_lock = threading.Lock()
 
 # ====== SQLite Timeseries DB ======
@@ -1209,8 +1211,7 @@ def collect_all():
     _dd_results = {}
     _dd_paths = [(label,path,status) for label,path,status in dirs if os.path.isdir(path)]
     _dd_notdir = [(label,path,status) for label,path,status in dirs if not os.path.isdir(path)]
-    # 并发 du（P0-1: ThreadPoolExecutor 并发，避免串行超时）
-    from concurrent.futures import ThreadPoolExecutor, as_completed
+    # 并发 du（全局线程池复用）
     def _du_one(label, path, status):
         try:
             r = subprocess.run(['du','-sk',path], capture_output=True, text=True, timeout=8)
@@ -1223,14 +1224,13 @@ def collect_all():
             size_s = '—'
             logging.warning(f'du error {path}: {e}')
         return (label, path, status, size_s)
-    with ThreadPoolExecutor(max_workers=3) as _exec:
-        _futures = [_exec.submit(_du_one, label, path, status) for label,path,status in _dd_paths]
-        for _f in as_completed(_futures):
-            try:
-                label, path, status, size_s = _f.result()
-                _dd_results[label] = {'label':label,'path':path.replace(HOME,'~'),'size':size_s,'status':status}
-            except Exception as _e:
-                logging.warning(f'du future error: {_e}')
+    _futures = [_du_pool.submit(_du_one, label, path, status) for label,path,status in _dd_paths]
+    for _f in as_completed(_futures):
+        try:
+            label, path, status, size_s = _f.result()
+            _dd_results[label] = {'label':label,'path':path.replace(HOME,'~'),'size':size_s,'status':status}
+        except Exception as _e:
+            logging.warning(f'du future error: {_e}')
     for label,path,status in _dd_paths:
         if label in _dd_results:
             data['data_dirs'].append(_dd_results[label])

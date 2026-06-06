@@ -1054,26 +1054,40 @@ function render(d){
       const detEl = $('#proc-detail');
       if (!detEl) return;
       detEl.style.display = 'block';
-      detEl.innerHTML = '<span style="color:var(--text3)">加载PID '+pid+'...</span>';
+      detEl.textContent = '加载PID '+pid+'...';
       try {
         const r = await fetch('/api/process/'+pid);
         const info = await r.json();
         if (!info.found) { detEl.innerHTML='<span style="color:var(--orange)">PID '+pid+' 未找到</span>'; return; }
-        detEl.innerHTML = `
-          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px">
-            <div><b>PID</b> ${info.pid}</div>
-            <div><b>CPU</b> <span style="color:${pct_c(info.cpu_pct,50,80)}">${info.cpu_pct}%</span></div>
-            <div><b>MEM</b> <span style="color:${pct_c(info.mem_pct,50,80)}">${info.mem_pct}%</span></div>
-            <div><b>RSS</b> ${info.rss_mb}MB</div>
-            <div><b>VSZ</b> ${info.vsz_mb}MB</div>
-            <div><b>Nice</b> ${info.nice||'—'}</div>
-            <div><b>运行时长</b> ${info.elapsed||'—'}</div>
-            <div><b>打开文件</b> ${info.open_files??'—'}</div>
-            <div><b>网络连接</b> ${info.connections?.length||0}个</div>
-          </div>
-          <div style="margin-top:4px;color:var(--text2);word-break:break-all;font-size:10px">${esc(info.command||'')}</div>
-          ${info.connections?.length ? '<details style="margin-top:4px"><summary style="cursor:pointer;color:var(--accent);font-size:10px">网络连接详情</summary><pre style="font-size:9px;color:var(--text3)">'+info.connections.map(c=>esc(c)).join('\n')+'</pre></details>' : ''}
-        `;
+        detEl.textContent = '';
+        const grid = document.createElement('div');
+        grid.style.cssText = 'display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px';
+        const items = [
+          ['PID', esc(info.pid)],
+          ['CPU', '<span style="color:'+pct_c(info.cpu_pct,50,80)+'">'+esc(info.cpu_pct)+'%</span>'],
+          ['MEM', '<span style="color:'+pct_c(info.mem_pct,50,80)+'">'+esc(info.mem_pct)+'%</span>'],
+          ['RSS', esc(info.rss_mb)+'MB'],
+          ['VSZ', esc(info.vsz_mb)+'MB'],
+          ['Nice', esc(info.nice||'—')],
+          ['运行时长', esc(info.elapsed||'—')],
+          ['打开文件', esc(info.open_files??'—')],
+          ['网络连接', esc(info.connections?.length||0)+'个']
+        ];
+        items.forEach(function(it) {
+          var d = document.createElement('div'); d.innerHTML = '<b>'+it[0]+'</b> '+it[1];
+          grid.appendChild(d);
+        });
+        detEl.appendChild(grid);
+        var cmdDiv = document.createElement('div');
+        cmdDiv.style.cssText = 'margin-top:4px;color:var(--text2);word-break:break-all;font-size:10px';
+        cmdDiv.textContent = info.command||'';
+        detEl.appendChild(cmdDiv);
+        if (info.connections?.length) {
+          var details = document.createElement('details');
+          details.style.cssText = 'margin-top:4px';
+          details.innerHTML = '<summary style="cursor:pointer;color:var(--accent);font-size:10px">网络连接详情</summary><pre style="font-size:9px;color:var(--text3)">'+info.connections.map(function(c){return esc(c);}).join('\n')+'</pre>';
+          detEl.appendChild(details);
+        }
       } catch(e) { detEl.innerHTML='<span style="color:var(--red)">加载失败: '+esc(e.message)+'</span>'; }
     };
   });
