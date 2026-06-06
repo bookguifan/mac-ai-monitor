@@ -20,3 +20,4 @@ memory/
 # OS
 .DS_Store
 data/timeseries.db
+token_stats.db
