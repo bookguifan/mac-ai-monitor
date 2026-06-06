@@ -212,6 +212,59 @@ async function initTokenPanel() {
   }
 }
 
+// ====== Agent 遥测パネル ======
+async function initAgentTelemetry(){
+  var el=document.getElementById('telemetry-chart');
+  if(!el) return;
+  try {
+    var r=await fetch('/api/agent-telemetry?range=30d');
+    var data=await r.json();
+    var summary=data.summary||{};
+    var daily=data.daily||[];
+    var sessions=data.sessions||[];
+    if(!summary.total_messages && !sessions.length){
+      el.innerHTML='<div style="color:var(--text3);padding:12px;font-size:11px">暂无 Agent 活动数据</div>';
+      return;
+    }
+    var html='';
+    // Summary cards
+    html+='<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px">';
+    html+='<div class="hist-stat"><span class="hs-v" style="color:var(--accent)">'+summary.total_messages+'</span><span class="hs-l">消息数</span></div>';
+    html+='<div class="hist-stat"><span class="hs-v" style="color:var(--green)">'+summary.total_assistant+'</span><span class="hs-l">AI 回复</span></div>';
+    html+='<div class="hist-stat"><span class="hs-v" style="color:var(--blue)">'+(summary.unique_models||[]).length+'</span><span class="hs-l">模型数</span></div>';
+    var errRate=summary.total_assistant>0?(summary.total_errors/summary.total_assistant*100).toFixed(1):'0.0';
+    html+='<div class="hist-stat"><span class="hs-v" style="color:'+(summary.total_errors>0?'var(--red)':'var(--text)')+'">'+errRate+'%</span><span class="hs-l">错误率</span></div>';
+    html+='</div>';
+    // Daily trend mini bars
+    if(daily.length>0){
+      var maxM=Math.max.apply(null,daily.map(function(d){return d.message_count||0;}));
+      html+='<div style="display:flex;align-items:flex-end;gap:2px;height:60px;margin-bottom:12px;border-bottom:1px solid var(--border);padding-bottom:4px">';
+      daily.forEach(function(d){
+        var h= maxM>0 ? Math.max(4,(d.message_count/maxM)*56) : 4;
+        html+='<div title="'+d.date+': '+d.message_count+'条" style="flex:1;background:var(--accent);border-radius:2px 2px 0 0;height:'+h+'px;opacity:0.7;min-width:4px"></div>';
+      });
+      html+='</div>';
+    }
+    // Top sessions
+    if(sessions.length>0){
+      html+='<div style="max-height:150px;overflow-y:auto">';
+      sessions.slice(0,10).forEach(function(s){
+        var ts=s.first_ts?new Date(s.first_ts*1000).toLocaleDateString('zh-CN',{month:'short',day:'numeric'}):'?';
+        html+='<div style="padding:3px 0;border-bottom:1px solid var(--border);font-size:11px;display:flex;align-items:center;gap:6px">';
+        html+='<span style="color:var(--text3);font-size:9px;min-width:24px">'+ts+'</span>';
+        html+='<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:monospace;font-size:10px">'+esc(s.session_id||'?')+'</span>';
+        html+='<span style="color:var(--accent);font-size:10px;font-weight:600">'+s.message_count+'</span>';
+        html+='<span style="color:var(--text3);font-size:9px;min-width:60px;text-align:right">'+esc(s.primary_model||'')+'</span>';
+        html+='</div>';
+      });
+      html+='</div>';
+    }
+    el.innerHTML=html;
+  }catch(e){
+    el.innerHTML='<div style="color:var(--text3);padding:12px;font-size:11px">加载失败: '+esc(e.message)+'</div>';
+  }
+}
+
 // ====== Donut Gauge SVG ======
 function donut(pct, size=100, stroke=8, color='#3dd68c'){
   const r=(size-stroke)/2; const c=2*Math.PI*r;
@@ -372,6 +425,14 @@ function render(d){
       tp.className='hist-panel';
       tp.innerHTML='<div class="hist-card"><div class="hist-title">💰 Token 使用量</div><div id="token-chart" style="min-height:80px;color:var(--text3);font-size:12px;text-align:center;padding:20px">加载中...</div></div>';
       main.insertBefore(tp,gauges);
+    }
+    // Agent 遥测パネル (Tokenパネル直後)
+    if(gauges&&!document.getElementById('telemetry-panel-insert')){
+      var ap=document.createElement('div');
+      ap.id='telemetry-panel-insert';
+      ap.className='hist-panel';
+      ap.innerHTML='<div class="hist-card"><div class="hist-title">📡 Agent 遥测</div><div id="telemetry-chart" style="min-height:80px;color:var(--text3);font-size:12px;text-align:center;padding:20px">加载中...</div></div>';
+      main.insertBefore(ap,gauges);
     }
   }
 
@@ -1046,6 +1107,10 @@ function render(d){
   // Token 使用量パネル
   if (document.getElementById('token-chart')) {
     initTokenPanel();
+  }
+  // Agent 遥测パネル
+  if (document.getElementById('telemetry-chart')) {
+    initAgentTelemetry();
   }
 
   // Footer

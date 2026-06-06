@@ -27,7 +27,7 @@ HOME          = os.path.expanduser('~')
 SCRIPT_DIR    = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR      = os.path.join(SCRIPT_DIR, 'data')
 LOG_FILE      = os.path.join(DATA_DIR, 'logs', 'monitor.log')
-__version__   = '2.18.0'
+__version__   = '2.19.0'
 ALERT_FILE    = os.path.join(DATA_DIR, 'alerts.json')
 ALERT_COOLDOWN = 1800  # 30 分钟相同告警不重复
 ALERT_CONFIG_FILE = os.path.join(DATA_DIR, 'alert_config.json')
@@ -143,9 +143,40 @@ def _init_token_db():
         conn.commit()
     logging.info('token_stats.db initialized')
 
+# Agent 遥测 (telemetry) DB
+TELEMETRY_DB_PATH = os.path.join(DATA_DIR, 'agent_telemetry.db')
+
+def _init_agent_telemetry_db():
+    """初始化 Agent 遥测统计数据库"""
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with sqlite3.connect(TELEMETRY_DB_PATH) as conn:
+        conn.execute('''CREATE TABLE IF NOT EXISTS daily_telemetry (
+            date TEXT PRIMARY KEY,
+            session_count INTEGER DEFAULT 0,
+            message_count INTEGER DEFAULT 0,
+            user_count INTEGER DEFAULT 0,
+            assistant_count INTEGER DEFAULT 0,
+            model_json TEXT DEFAULT '{}',
+            error_count INTEGER DEFAULT 0
+        )''')
+        conn.execute('''CREATE TABLE IF NOT EXISTS session_telemetry (
+            session_id TEXT PRIMARY KEY,
+            first_ts INTEGER DEFAULT 0,
+            last_ts INTEGER DEFAULT 0,
+            message_count INTEGER DEFAULT 0,
+            assistant_count INTEGER DEFAULT 0,
+            primary_model TEXT DEFAULT '',
+            model_json TEXT DEFAULT '{}',
+            error_count INTEGER DEFAULT 0
+        )''')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_telem_date ON daily_telemetry(date)')
+        conn.commit()
+    logging.info('agent_telemetry.db initialized')
+
 # Token 収集ロック（JSONL解析は重い処理のため排他制御）
 _token_lock = threading.Lock()
 _token_last_scan = 0
+_telemetry_last_scan = 0
 _token_scan_interval = 300  # 5分ごと
 
 # モデルコスト見積り (per 1K tokens, USD)
@@ -250,9 +281,135 @@ def _collect_token_stats():
     finally:
         _token_lock.release()
 
+def _collect_agent_telemetry():
+    """JSONLファイルから Agent 遥测データを収集"""
+    global _telemetry_last_scan
+    now = time.time()
+    if now - _telemetry_last_scan < _token_scan_interval:
+        return
+    _token_lock.acquire()
+    try:
+        jsonl_dir = os.path.join(HOME, '.qclaw')
+        if not os.path.isdir(jsonl_dir):
+            return
+        jsonl_files = sorted(
+            [f for f in os.listdir(jsonl_dir) if f.endswith('.jsonl')],
+            key=lambda x: os.path.getmtime(os.path.join(jsonl_dir, x)),
+            reverse=True
+        )[:15]
+        
+        daily = {}
+        sessions = {}
+        
+        for fname in jsonl_files:
+            filepath = os.path.join(jsonl_dir, fname)
+            current_sid = 'unknown'
+            try:
+                with open(filepath) as fh:
+                    for line in fh:
+                        try:
+                            d = json.loads(line)
+                            msg = d.get('message', {})
+                            role = msg.get('role', '')
+                            ts_str = d.get('timestamp', '')
+                            
+                            date = ''
+                            ts_epoch = 0
+                            if ts_str:
+                                try:
+                                    dt = datetime.datetime.fromisoformat(ts_str.replace('Z', '+00:00'))
+                                    ts_epoch = int(dt.timestamp())
+                                    date = dt.strftime('%Y-%m-%d')
+                                except Exception as _exc_t: logging.debug(f"suppressed: {_exc_t}")
+                            
+                            if d.get('type') == 'session':
+                                current_sid = d.get('id', 'unknown')
+                                if current_sid not in sessions:
+                                    sessions[current_sid] = {
+                                        'first_ts': ts_epoch, 'last_ts': ts_epoch,
+                                        'messages': 0, 'assistant': 0, 'errors': 0,
+                                        'models': {}
+                                    }
+                                if ts_epoch > 0:
+                                    s = sessions[current_sid]
+                                    if s['first_ts'] == 0 or ts_epoch < s['first_ts']:
+                                        s['first_ts'] = ts_epoch
+                                    if ts_epoch > s['last_ts']:
+                                        s['last_ts'] = ts_epoch
+                                continue
+                            
+                            if not role or not date:
+                                continue
+                            
+                            if date not in daily:
+                                daily[date] = {'sessions': set(), 'messages': 0, 'user': 0, 'assistant': 0, 'errors': 0, 'models': {}}
+                            daily[date]['messages'] += 1
+                            if d.get('id'):
+                                daily[date]['sessions'].add(d.get('id'))
+                            daily[date][role] = daily[date].get(role, 0) + 1
+                            
+                            sid = current_sid or d.get('id', '')
+                            if sid and sid in sessions:
+                                sessions[sid]['messages'] += 1
+                            
+                            if role == 'assistant':
+                                model = msg.get('model', 'unknown')
+                                daily[date]['models'][model] = daily[date]['models'].get(model, 0) + 1
+                                if sid and sid in sessions:
+                                    sessions[sid]['assistant'] += 1
+                                    sessions[sid]['models'][model] = sessions[sid]['models'].get(model, 0) + 1
+                                
+                                content = msg.get('content', '')
+                                is_error = False
+                                if isinstance(content, str) and content.strip():
+                                    try:
+                                        parsed = json.loads(content)
+                                        if isinstance(parsed, dict) and parsed.get('error'):
+                                            is_error = True
+                                    except (json.JSONDecodeError, TypeError):
+                                        if 'error' in content.lower()[:200]:
+                                            is_error = True
+                                if isinstance(content, dict) and content.get('error'):
+                                    is_error = True
+                                if is_error:
+                                    daily[date]['errors'] += 1
+                                    if sid and sid in sessions:
+                                        sessions[sid]['errors'] += 1
+                        except (json.JSONDecodeError, KeyError):
+                            continue
+            except (IOError, OSError) as e:
+                logging.warning(f'Telemetry scan: cannot read {fname}: {e}')
+                continue
+        
+        with sqlite3.connect(TELEMETRY_DB_PATH) as conn:
+            for date, dd in daily.items():
+                models_json = json.dumps(dd['models'])
+                conn.execute(
+                    "INSERT OR REPLACE INTO daily_telemetry "
+                    "(date, session_count, message_count, user_count, assistant_count, model_json, error_count) "
+                    "VALUES (?,?,?,?,?,?,?)",
+                    (date, len(dd['sessions']), dd['messages'], dd.get('user', 0),
+                     dd.get('assistant', 0), models_json, dd['errors']))
+            for sid, ss in sessions.items():
+                primary = max(ss['models'], key=ss['models'].get) if ss['models'] else 'unknown'
+                models_json = json.dumps(ss['models'])
+                conn.execute(
+                    "INSERT OR REPLACE INTO session_telemetry "
+                    "(session_id, first_ts, last_ts, message_count, assistant_count, primary_model, model_json, error_count) "
+                    "VALUES (?,?,?,?,?,?,?,?)",
+                    (sid, ss['first_ts'], ss['last_ts'], ss['messages'],
+                     ss['assistant'], primary, models_json, ss['errors']))
+            conn.commit()
+        logging.debug(f'Telemetry: {len(daily)} days, {len(sessions)} sessions')
+        _telemetry_last_scan = now
+    finally:
+        _token_lock.release()
+
+
 # 初始化数据库
 _init_tsdb()
 _init_token_db()
+_init_agent_telemetry_db()
 
 # ====== Utilities ======
 
@@ -1679,6 +1836,7 @@ def collect_all():
     
     # Token 使用统计収集（JSONL スキャン、5分キャッシュ）
     _collect_token_stats()
+    _collect_agent_telemetry()
     
     return data
 
@@ -3020,6 +3178,62 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             try: self.wfile.write(body)
             except BrokenPipeError: pass
+        elif self.path.startswith('/api/agent-telemetry'):
+            # Agent 遥测数据
+            import urllib.parse as uparse
+            qs = uparse.urlparse(self.path).query
+            params = uparse.parse_qs(qs)
+            range_days = int(params.get('range', ['7'])[0].rstrip('dD'))
+            cutoff = (datetime.datetime.now() - datetime.timedelta(days=range_days)).strftime('%Y-%m-%d')
+            
+            daily = []
+            sessions = []
+            try:
+                with sqlite3.connect(TELEMETRY_DB_PATH) as conn:
+                    rows = conn.execute(
+                        'SELECT date, session_count, message_count, user_count, assistant_count, model_json, error_count '
+                        'FROM daily_telemetry WHERE date >= ? ORDER BY date ASC', (cutoff,)
+                    ).fetchall()
+                    for r in rows:
+                        daily.append({
+                            'date': r[0], 'session_count': r[1], 'message_count': r[2],
+                            'user_count': r[3], 'assistant_count': r[4],
+                            'models': json.loads(r[5]) if r[5] else {},
+                            'error_count': r[6]
+                        })
+                    srows = conn.execute(
+                        'SELECT session_id, first_ts, last_ts, message_count, assistant_count, primary_model, model_json, error_count '
+                        'FROM session_telemetry ORDER BY message_count DESC LIMIT 20'
+                    ).fetchall()
+                    for r in srows:
+                        sessions.append({
+                            'session_id': r[0][:40] + ('...' if len(r[0]) > 40 else ''),
+                            'first_ts': r[1], 'last_ts': r[2],
+                            'message_count': r[3], 'assistant_count': r[4],
+                            'primary_model': r[5],
+                            'models': json.loads(r[6]) if r[6] else {},
+                            'error_count': r[7]
+                        })
+            except Exception as _exc_at:
+                logging.warning(f'/api/agent-telemetry error: {_exc_at}')
+            
+            summary = {
+                'total_sessions': sum(d['session_count'] for d in daily),
+                'total_messages': sum(d['message_count'] for d in daily),
+                'total_assistant': sum(d['assistant_count'] for d in daily),
+                'total_errors': sum(d['error_count'] for d in daily),
+                'unique_models': list(set(
+                    m for d in daily for m in (d.get('models') or {}).keys()
+                ))
+            }
+            body = json.dumps({'daily': daily, 'sessions': sessions, 'summary': summary}, ensure_ascii=False).encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.send_header('Cache-Control', 'no-cache')
+            self.end_headers()
+            try: self.wfile.write(body)
+            except BrokenPipeError: pass
+
         elif self.path.startswith('/api/export'):
             # Export current snapshot as JSON or CSV
             fmt = 'json'
