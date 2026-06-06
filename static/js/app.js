@@ -147,6 +147,71 @@ function _setupHistRangeBtns() {
   });
 }
 
+// ====== Token Usage Panel ======
+var _tokenRange = '7d';
+
+async function initTokenPanel() {
+  var el = document.getElementById('token-chart');
+  if (!el) return;
+  try {
+    var r = await fetch('/api/tokens?range=' + _tokenRange);
+    if (!r.ok) { el.innerHTML = '<div style="color:var(--text3);padding:12px;font-size:11px">数据不可用</div>'; return; }
+    var d = await r.json();
+    if (!d.models || d.models.length === 0) {
+      el.innerHTML = '<div style="color:var(--text3);font-size:12px;text-align:center;padding:20px">📊 暂无 Token 使用数据<br><span style="font-size:10px">模型被调用后数据将自动出现</span></div>';
+      return;
+    }
+    var maxCalls = Math.max.apply(null, d.models.map(function(m) { return m.calls || 0; }));
+    var barHtml = '';
+    d.models.forEach(function(m) {
+      var w = maxCalls > 0 ? Math.max(3, ((m.calls||0) / maxCalls) * 100) : 0;
+      var color = m.calls > 100 ? 'var(--red)' : m.calls > 20 ? 'var(--orange)' : 'var(--accent)';
+      var name = esc(m.model || '?');
+      if (name.length > 30) name = name.substring(0, 30) + '...';
+      barHtml += '<div style="display:flex;align-items:center;margin-bottom:6px;font-size:11px">' +
+        '<span style="width:130px;min-width:130px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(m.model) + ' (' + esc(m.provider) + ')">' + name + '</span>' +
+        '<span style="flex:1;height:16px;background:var(--border);border-radius:3px;overflow:hidden;margin:0 8px">' +
+          '<div style="height:100%;width:' + w.toFixed(1) + '%;background:' + color + ';border-radius:3px;transition:width .5s"></div>' +
+        '</span>' +
+        '<span style="min-width:60px;text-align:right;color:var(--text);font-weight:600">' + esc(m.calls||0) + '次</span>' +
+      '</div>';
+    });
+    var tokenStr = d.total_tokens > 0 ? (d.total_tokens >= 1000 ? (d.total_tokens/1000).toFixed(1) + 'K' : d.total_tokens) + ' tokens' : '-';
+    var costStr = d.total_cost_est > 0 ? '$' + d.total_cost_est.toFixed(4) : '≈$0';
+    el.innerHTML = '' +
+      '<div style="display:flex;gap:12px;margin-bottom:10px;flex-wrap:wrap">' +
+        '<div style="flex:1;min-width:100px;text-align:center;padding:8px;background:var(--card-h);border-radius:8px">' +
+          '<div style="font-size:20px;font-weight:700;color:var(--accent)">' + esc(d.total_calls||0) + '</div>' +
+          '<div style="font-size:10px;color:var(--text3)">调用次数</div>' +
+        '</div>' +
+        '<div style="flex:1;min-width:100px;text-align:center;padding:8px;background:var(--card-h);border-radius:8px">' +
+          '<div style="font-size:20px;font-weight:700;color:var(--green)">' + tokenStr + '</div>' +
+          '<div style="font-size:10px;color:var(--text3)">Token 预估</div>' +
+        '</div>' +
+        '<div style="flex:1;min-width:100px;text-align:center;padding:8px;background:var(--card-h);border-radius:8px">' +
+          '<div style="font-size:20px;font-weight:700;color:var(--orange)">' + costStr + '</div>' +
+          '<div style="font-size:10px;color:var(--text3)">成本预估</div>' +
+        '</div>' +
+      '</div>' +
+      '<div style="font-size:10px;color:var(--text3);margin-bottom:8px">📋 模型分布 (' + (_tokenRange === '7d' ? '7天' : _tokenRange === '30d' ? '30天' : _tokenRange) + ')</div>' +
+      barHtml +
+      (d.daily && d.daily.length > 1 ? '<div style="margin-top:12px;padding-top:8px;border-top:1px solid var(--border);display:flex;gap:2px;align-items:end;height:60px">' +
+        d.daily.map(function(day) {
+          var maxDay = Math.max.apply(null, d.daily.map(function(dd) { return dd.calls || 0; })) || 1;
+          var h = Math.max(2, ((day.calls||0) / maxDay) * 56);
+          return '<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:end" title="' + esc(day.date) + ': ' + esc(day.calls||0) + ' calls">' +
+            '<span style="font-size:8px;color:var(--text3);margin-bottom:2px">' + esc(day.calls||0) + '</span>' +
+            '<div style="width:100%;max-width:20px;height:' + h + 'px;background:var(--accent);border-radius:2px 2px 0 0;opacity:0.7"></div>' +
+            '<span style="font-size:7px;color:var(--text3);margin-top:2px">' + (day.date||'').replace(/^\d{4}-/, '').substring(0,5) + '</span>' +
+          '</div>';
+        }).join('') +
+      '</div>' : '') +
+    '';
+  } catch(e) {
+    el.innerHTML = '<div style="color:var(--text3);padding:12px;font-size:11px">加载失败</div>';
+  }
+}
+
 // ====== Donut Gauge SVG ======
 function donut(pct, size=100, stroke=8, color='#3dd68c'){
   const r=(size-stroke)/2; const c=2*Math.PI*r;
@@ -299,6 +364,14 @@ function render(d){
       insert.className='hist-panel';
       insert.innerHTML='<div class="hist-card"><div class="hist-title">📈 历史趋势</div><div id="hist-chart" style="width:100%;height:250px"></div></div>';
       main.insertBefore(insert,gauges);
+    }
+    // Token 使用量パネル (履歴チャート直後)
+    if(gauges&&!document.getElementById('token-panel-insert')){
+      const tp=document.createElement('div');
+      tp.id='token-panel-insert';
+      tp.className='hist-panel';
+      tp.innerHTML='<div class="hist-card"><div class="hist-title">💰 Token 使用量</div><div id="token-chart" style="min-height:80px;color:var(--text3);font-size:12px;text-align:center;padding:20px">加载中...</div></div>';
+      main.insertBefore(tp,gauges);
     }
   }
 
@@ -964,6 +1037,11 @@ function render(d){
     }
     initHistChart();
     _setupHistRangeBtns();
+  }
+
+  // Token 使用量パネル
+  if (document.getElementById('token-chart')) {
+    initTokenPanel();
   }
 
   // Footer

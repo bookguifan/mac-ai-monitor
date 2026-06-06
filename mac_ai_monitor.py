@@ -26,7 +26,7 @@ HOME          = os.path.expanduser('~')
 SCRIPT_DIR    = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR      = os.path.join(SCRIPT_DIR, 'data')
 LOG_FILE      = os.path.join(DATA_DIR, 'logs', 'monitor.log')
-__version__   = '2.16.0'
+__version__   = '2.17.0'
 ALERT_FILE    = os.path.join(DATA_DIR, 'alerts.json')
 ALERT_COOLDOWN = 1800  # 30 分钟相同告警不重复
 ALERT_CONFIG_FILE = os.path.join(DATA_DIR, 'alert_config.json')
@@ -117,8 +117,140 @@ def _append_sample(data):
     except Exception as e:
         logging.warning(f'_append_sample failed: {e}')
 
+# Token 统计数据库
+TOKEN_DB_PATH = os.path.join(DATA_DIR, 'token_stats.db')
+
+def _init_token_db():
+    """初始化 Token 统计数据库"""
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with sqlite3.connect(TOKEN_DB_PATH) as conn:
+        conn.execute('''CREATE TABLE IF NOT EXISTS token_calls (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts INTEGER NOT NULL,
+            date TEXT NOT NULL,
+            model TEXT NOT NULL DEFAULT '',
+            provider TEXT NOT NULL DEFAULT '',
+            session_id TEXT DEFAULT '',
+            call_count INTEGER DEFAULT 1,
+            tokens_in INTEGER DEFAULT 0,
+            tokens_out INTEGER DEFAULT 0,
+            duration_ms INTEGER DEFAULT 0
+        )''')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_token_ts ON token_calls(ts)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_token_date ON token_calls(date)')
+        conn.commit()
+    logging.info('token_stats.db initialized')
+
+# Token 収集ロック（JSONL解析は重い処理のため排他制御）
+_token_lock = threading.Lock()
+_token_last_scan = 0
+_token_scan_interval = 300  # 5分ごと
+
+# モデルコスト見積り (per 1K tokens, USD)
+MODEL_COSTS = {
+    'deepseek-chat':      {'in': 0.00014, 'out': 0.00028},
+    'deepseek-reasoner':  {'in': 0.00055, 'out': 0.00219},
+    'claude-sonnet-4-20250514': {'in': 0.003,  'out': 0.015},
+    'gpt-4o':             {'in': 0.0025, 'out': 0.01},
+    'qwen3':              {'in': 0.0005, 'out': 0.001},
+}
+
+def _estimate_cost(model_name, tokens_in, tokens_out):
+    """トークン数からコストを推定 (USD)"""
+    for key, rates in MODEL_COSTS.items():
+        if key in model_name.lower():
+            cost_in = (tokens_in / 1000.0) * rates['in']
+            cost_out = (tokens_out / 1000.0) * rates['out']
+            return round(cost_in + cost_out, 6)
+    # 不明なモデルはデフォルト推定
+    if tokens_in > 0 or tokens_out > 0:
+        return round((tokens_in + tokens_out) / 1000.0 * 0.0005, 6)
+    return 0
+
+def _collect_token_stats():
+    """JSONLファイルからモデル呼び出し統計を収集してDBに保存"""
+    global _token_last_scan
+    now = time.time()
+    if now - _token_last_scan < _token_scan_interval:
+        return  # キャッシュ有効
+    if not _token_lock.acquire(blocking=False):
+        return  # 既存のスキャンが実行中
+    try:
+        jsonl_dir = os.path.join(HOME, '.qclaw')
+        if not os.path.isdir(jsonl_dir):
+            return
+        jsonl_files = sorted(
+            [f for f in os.listdir(jsonl_dir) if f.endswith('.jsonl')],
+            key=lambda x: os.path.getmtime(os.path.join(jsonl_dir, x)),
+            reverse=True
+        )[:15]  # 最新15ファイル
+        
+        new_calls = 0
+        for fname in jsonl_files:
+            filepath = os.path.join(jsonl_dir, fname)
+            session_id = 'unknown'
+            try:
+                with open(filepath) as fh:
+                    for line in fh:
+                        try:
+                            d = json.loads(line)
+                            if d.get('type') == 'session':
+                                session_id = d.get('id', 'unknown')
+                            msg = d.get('message', {})
+                            if msg.get('role') != 'assistant':
+                                continue
+                            ts_str = d.get('timestamp', '')
+                            ts = 0
+                            if ts_str:
+                                try:
+                                    ts = int(datetime.datetime.fromisoformat(
+                                        ts_str.replace('Z', '+00:00')).timestamp())
+                                except Exception as _exc_e: logging.debug(f"suppressed: {_exc_e}"); pass
+                            if ts == 0:
+                                ts = int(os.path.getmtime(filepath))
+                            date = datetime.datetime.fromtimestamp(ts).strftime('%Y-%m-%d')
+                            model = msg.get('model', 'unknown')
+                            provider = msg.get('provider', 'unknown')
+                            usage = msg.get('usage', {})
+                            tokens_in = usage.get('input', 0) or 0
+                            tokens_out = usage.get('output', 0) or 0
+                            duration = msg.get('duration_ms', 0) or 0
+                            
+                            with sqlite3.connect(TOKEN_DB_PATH) as conn:
+                                existing = conn.execute(
+                                    'SELECT id, call_count FROM token_calls WHERE date=? AND model=? AND provider=? AND session_id=?',
+                                    (date, model, provider, session_id)).fetchone()
+                                if existing:
+                                    conn.execute(
+                                        'UPDATE token_calls SET call_count=call_count+1, tokens_in=tokens_in+?, tokens_out=tokens_out+?, duration_ms=duration_ms+? WHERE id=?',
+                                        (tokens_in, tokens_out, duration, existing[0]))
+                                else:
+                                    conn.execute(
+                                        'INSERT INTO token_calls (ts, date, model, provider, session_id, call_count, tokens_in, tokens_out, duration_ms) VALUES (?,?,?,?,?,1,?,?,?)',
+                                        (ts, date, model, provider, session_id, tokens_in, tokens_out, duration))
+                                conn.commit()
+                            new_calls += 1
+                        except (json.JSONDecodeError, KeyError):
+                            continue
+            except (IOError, OSError) as e:
+                logging.warning(f'Token scan: cannot read {fname}: {e}')
+                continue
+        
+        _token_last_scan = now
+        if new_calls > 0:
+            logging.info(f'Token scan: {new_calls} new calls from {len(jsonl_files)} files')
+        
+        # クリーンアップ: 30日以上前のデータを削除
+        cutoff_date = (datetime.datetime.now() - datetime.timedelta(days=30)).strftime('%Y-%m-%d')
+        with sqlite3.connect(TOKEN_DB_PATH) as conn:
+            conn.execute('DELETE FROM token_calls WHERE date < ?', (cutoff_date,))
+            conn.commit()
+    finally:
+        _token_lock.release()
+
 # 初始化数据库
 _init_tsdb()
+_init_token_db()
 
 # ====== Utilities ======
 
@@ -143,7 +275,7 @@ def _parse_cron_field(field, max_val):
             result.update(range(start, end + 1))
         else:
             try: result.add(int(part))
-            except ValueError: pass
+            except ValueError as _exc_e: logging.debug(f"value err: {_exc_e}"); pass
     return result
 
 def _cron_next(expr):
@@ -165,7 +297,10 @@ def _cron_next(expr):
                     and (base.weekday() + 1) % 7 in dow_set):
                 return base.strftime('%m-%d %H:%M')
             base += datetime.timedelta(minutes=1)
-    except Exception:
+    except Exception as _exc_e:
+
+        logging.warning(f"suppressed exception: {_exc_e}")
+
         pass
     return None
 
@@ -223,7 +358,7 @@ def send_alert(title, message, alert_key=''):
         try:
             if os.path.exists(_wh_file):
                 _feishu_webhook = open(_wh_file, encoding='utf-8').read().strip()
-        except Exception: pass
+        except Exception as _exc_e: logging.debug(f"suppressed: {_exc_e}"); pass
         if _feishu_webhook and _feishu_webhook.startswith('http'):
             try:
                 _payload = json.dumps({'title': title, 'text': message}).encode('utf-8')
@@ -292,8 +427,13 @@ KNOWN_PORTS = {
 }
 
 # ====== Config Discovery ======
+_discover_cache = {'data': None, 'ts': 0, 'ttl': 300}
+
 def discover_configs():
-    """Scan openclaw.json from known instance dirs"""
+    """Scan openclaw.json from known instance dirs (5min cache)"""
+    now = time.time()
+    if _discover_cache['data'] is not None and (now - _discover_cache['ts']) < _discover_cache['ttl']:
+        return _discover_cache['data']
     out = []
     for p in [
         os.path.join(HOME,'.jvs/.openclaw','openclaw.json'),
@@ -306,7 +446,9 @@ def discover_configs():
                 with open(p) as f: cfg = json.load(f)
                 cfg['_path'] = p; cfg['_dir'] = os.path.dirname(p)
                 out.append(cfg)
-            except Exception: pass
+            except Exception as _exc_e: logging.debug(f"suppressed: {_exc_e}"); pass
+    _discover_cache['data'] = out
+    _discover_cache['ts'] = time.time()
     return out
 
 def get_config_hash(path):
@@ -419,7 +561,7 @@ def collect_all():
         os.makedirs(os.path.dirname(ALERT_FILE), exist_ok=True)
         with open(os.path.join(DATA_DIR, 'config_hashes.json'), 'w', encoding='utf-8') as f:
             json.dump(prev_hashes, f)
-    except Exception: pass
+    except Exception as _exc_e: logging.debug(f"suppressed: {_exc_e}"); pass
     data['config_changes'] = config_changes
     data['log_stats'] = get_log_sizes()
 
@@ -486,7 +628,7 @@ def collect_all():
                                 n = line.split(':')[-1].strip()
                                 if n: gpus.append(n)
                                 break
-                except Exception: pass
+                except Exception as _exc_e: logging.debug(f"suppressed: {_exc_e}"); pass
                 with _gpu_lock:
                     if gpus:
                         _gpu_cache_store['gpus'] = gpus
@@ -502,7 +644,7 @@ def collect_all():
                     if 'Chipset Model' in line or '芯片组型号' in line:
                         n = line.split(':')[-1].strip()
                         if n: gpus.append(n)
-            except Exception: pass
+            except Exception as _exc_e: logging.debug(f"suppressed: {_exc_e}"); pass
             data['system']['gpu'] = gpus
             with _gpu_lock:
                 _gpu_cache_store['gpus'] = gpus
@@ -593,7 +735,7 @@ def collect_all():
                 if upper.endswith('G'): return float(s[:-1])
                 if upper.endswith('M'): return float(s[:-1]) / 1024
                 if upper.endswith('K'): return float(s[:-1]) / 1048576
-            except (ValueError, IndexError): pass
+            except (ValueError, IndexError) as _exc_e: logging.debug(f"suppressed: {_exc_e}"); pass
             return 0
         disk_size_gb = _parse_to_gb(p[1])
         disk_used_gb = _parse_to_gb(p[2])
@@ -639,8 +781,7 @@ def collect_all():
                     vname = vm_disk.group(2).strip()
                     if len(dn.replace('/dev/','').split('s')) <= 3 and 'Not applicable' not in vname:
                         vol_names[dn] = vname
-        except Exception: pass
-
+        except Exception as _exc_e: logging.debug(f"suppressed: {_exc_e}"); pass
         # 3) Merge: df_map provides size, vol_names provides display name
         for dev, info in sorted(df_map.items()):
             name = vol_names.get(dev, dev.split('/')[-1])
@@ -663,8 +804,7 @@ def collect_all():
             data['battery']['charging'] = st in ('charged','charging','AC')
             data['battery']['status_cn'] = {'charging':'充电中','charged':'已充满',
                 'discharging':'放电','finishing':'即将充满','AC':'电源'}.get(st,st)
-    except Exception: pass
-
+    except Exception as _exc_e: logging.debug(f"suppressed: {_exc_e}"); pass
     # ---- Network ----
     data['net'] = {'interface':NET_IFACE,'rx_kbps':0,'tx_kbps':0,
                        'connections_est':0,'connections_listen':0,'connections_timewait':0}
@@ -675,7 +815,7 @@ def collect_all():
                 p=line.split()
                 if len(p)>=10:
                     try: rx=int(p[6]); tx=int(p[9]); break
-                    except Exception: pass
+                    except Exception as _exc_e: logging.debug(f"suppressed: {_exc_e}"); pass
         else: rx=tx=0
         dt = now-_net_s['ts']
         if dt>0.5:
@@ -729,17 +869,18 @@ def collect_all():
                 data['disk_io']['read_mbps'] = round(read_bytes / 1024 / 1024, 1)
                 data['disk_io']['write_mbps'] = round(write_bytes / 1024 / 1024, 1)
                 data['disk_io']['iops'] = 0
-        except Exception:
-            pass
+        except Exception as _exc_e:
 
+            logging.warning(f"suppressed exception: {_exc_e}")
+
+            pass
     try:
         out = run_cmd(['netstat','-an'],5)
         for line in out.split('\n'):
             if 'ESTABLISHED' in line: data['net']['connections_est']+=1
             elif 'LISTEN' in line: data['net']['connections_listen']+=1
             elif 'TIME_WAIT' in line: data['net']['connections_timewait']+=1
-    except Exception: pass
-
+    except Exception as _exc_e: logging.debug(f"suppressed: {_exc_e}"); pass
     # ---- Shared Process Table (single ps aux) ----
     ps_procs = {}
     try:
@@ -751,7 +892,7 @@ def collect_all():
                 ps_procs[p[1]] = {'rss':int(p[5]),'cpu':float(p[2]),'mem':float(p[3]),
                                    'comm':p[10].split()[0] if p[10] else '',
                                    'args':p[10] if len(p)>10 else ''}
-            except (ValueError,IndexError): pass
+            except (ValueError, IndexError) as _exc_e: logging.debug(f"suppressed: {_exc_e}"); pass
     except Exception as e: logging.warning(f'ps table: {e}')
 
     # ---- Top Processes (from shared ps_procs) ----
@@ -784,8 +925,7 @@ def collect_all():
             lsof_all.append(line)
             if 'LISTEN' in line:
                 lsof_listen.append(line)
-    except Exception: pass
-
+    except Exception as _exc_e: logging.debug(f"suppressed: {_exc_e}"); pass
     # ---- Ports (from shared lsof_listen + ps_procs) ----
     data['ports'] = []
     try:
@@ -843,15 +983,13 @@ def collect_all():
             if port and 1 <= int(port) <= 65535 and pid:
                 if port not in gw_ports.get(pid, []):
                     gw_ports.setdefault(pid, []).append(port)
-    except Exception: pass
-
+    except Exception as _exc_e: logging.debug(f"suppressed: {_exc_e}"); pass
     ppid_map = {}
     try:
         for line in run_cmd(['ps','-eo','pid,ppid,comm'],5).split('\n')[1:]:
             p=line.strip().split(None,2)
             if len(p)>=2: ppid_map[p[0]]={'ppid':p[1],'comm':p[2] if len(p)>2 else ''}
-    except Exception: pass
-
+    except Exception as _exc_e: logging.debug(f"suppressed: {_exc_e}"); pass
     def _detect_source_raw(pid):
         # Trace full PPID chain to root app (PPID=1 = directly launched app)
         def trace_to_app(pid):
@@ -977,9 +1115,11 @@ def collect_all():
                         'avg_response_ms': status_data.get('latency_ms', 0) or status_data.get('avg_latency', 0),
                         'error_rate': status_data.get('error_rate', 0),
                     }
-            except Exception:
-                pass
+            except Exception as _exc_e:
 
+                logging.warning(f"suppressed exception: {_exc_e}")
+
+                pass
     merged = []
     for n, d in _by_name.items():
         f = d['first']
@@ -1118,7 +1258,7 @@ def collect_all():
                     try:
                         dt=datetime.datetime.fromisoformat(lr)
                         lr=dt.strftime('%m-%d %H:%M')
-                    except Exception: pass
+                    except Exception as _exc_e: logging.debug(f"suppressed: {_exc_e}"); pass
                 delivery=job.get('delivery',{})
                 dc=delivery.get('channel','—')
                 ch_cn={'openclaw-weixin':'微信','feishu':'飞书','telegram':'Telegram'}.get(dc,dc)
@@ -1183,7 +1323,7 @@ def collect_all():
                                 if line and not line.startswith('#') and not line.startswith('---') and len(line)>10:
                                     desc=line[:80]; break
                         mdate=datetime.datetime.fromtimestamp(os.path.getmtime(smd)).strftime('%Y-%m-%d')
-                    except Exception: pass
+                    except Exception as _exc_e: logging.debug(f"suppressed: {_exc_e}"); pass
                     skills.append({'name':item,'desc':desc,'version':ver,'updated':mdate})
             skills.sort(key=lambda x:x['name'])
             data['skills'][app][cat]=skills
@@ -1388,7 +1528,7 @@ def collect_all():
                                         mt = datetime.datetime.fromisoformat(ts.replace('Z', '+00:00')).date()
                                         if mt == today:
                                             session_stats['today_tokens'] += tokens
-                                    except Exception: pass
+                                    except Exception as _exc_e: logging.debug(f"suppressed: {_exc_e}"); pass
                 except Exception: continue
         except Exception: continue
     data['sessions'] = session_stats
@@ -1426,7 +1566,7 @@ def collect_all():
                     if fn not in seen_names:
                         seen_names.add(fn)
                         all_files.append((ad, fn, False))
-        except Exception: pass
+        except Exception as _exc_e: logging.debug(f"suppressed: {_exc_e}"); pass
     # Sort by mtime descending, limit to 50
     all_files.sort(key=lambda x: os.path.getmtime(os.path.join(x[0], x[1])), reverse=True)
     all_files = all_files[:50]
@@ -1485,7 +1625,7 @@ def collect_all():
                     rec = json.load(sf)
                     label = rec.get('label', '')
                     if label: name = label
-            except Exception: pass
+            except Exception as _exc_e: logging.debug(f"suppressed: {_exc_e}"); pass
         else:
             fp = os.path.join(ad, fn)
             mtime = os.path.getmtime(fp)
@@ -1516,6 +1656,9 @@ def collect_all():
     # 时序采样写入 SQLite（异步不阻塞）
     _append_sample(data)
     
+    # Token 使用统计収集（JSONL スキャン、5分キャッシュ）
+    _collect_token_stats()
+    
     return data
 
 
@@ -1525,7 +1668,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Mac AI Monitor v2.16.0</title>
+<title>Mac AI Monitor v2.17.0</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -2678,7 +2821,7 @@ class Handler(BaseHTTPRequestHandler):
                                     with open(os.path.join(log_dir, fname), 'r', errors='replace') as lf:
                                         log_content += f'\n=== {inst.get("name","?")} / {fname} ===\n'
                                         log_content += ''.join(lf.readlines()[-lines:])
-                except Exception: pass
+                except Exception as _exc_e: logging.debug(f"suppressed: {_exc_e}"); pass
             if not log_content:
                 log_content = '暂无 Gateway 日志\n（Gateway 配置路径不可用或日志目录不存在）'
             body = json.dumps({'log': log_content, 'lines': lines, 'grep': grep}, ensure_ascii=False).encode('utf-8')
@@ -2747,6 +2890,66 @@ class Handler(BaseHTTPRequestHandler):
                 except BrokenPipeError: pass
             except Exception as e:
                 logging.warning(f'/api/history error: {e}')
+                body = json.dumps({'error': str(e)}).encode()
+                self.send_response(500)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(body)
+        elif self.path.startswith('/api/tokens'):
+            # Token 使用量统计
+            import urllib.parse as uparse
+            qs = uparse.urlparse(self.path).query
+            params = uparse.parse_qs(qs)
+            range_h = params.get('range', ['7d'])[0]
+            range_map = {'1d': 86400, '7d': 604800, '30d': 2592000}
+            seconds = range_map.get(range_h, 604800)
+            now = int(time.time())
+            cutoff_date = datetime.datetime.fromtimestamp(now - seconds).strftime('%Y-%m-%d')
+            try:
+                with sqlite3.connect(TOKEN_DB_PATH) as conn:
+                    # モデル別集計
+                    model_rows = conn.execute(
+                        'SELECT model, provider, SUM(call_count) as calls, SUM(tokens_in) as t_in, SUM(tokens_out) as t_out, SUM(duration_ms) as dur FROM token_calls WHERE date >= ? GROUP BY model, provider ORDER BY calls DESC',
+                        (cutoff_date,)).fetchall()
+                    # 日別集計
+                    daily_rows = conn.execute(
+                        'SELECT date, SUM(call_count) as calls, SUM(tokens_in) as t_in, SUM(tokens_out) as t_out FROM token_calls WHERE date >= ? GROUP BY date ORDER BY date ASC',
+                        (cutoff_date,)).fetchall()
+                models = []
+                total_calls = 0
+                total_tokens = 0
+                for r in model_rows:
+                    cost = _estimate_cost(r[1] or (r[0] or ''), r[3] or 0, r[4] or 0)
+                    models.append({
+                        'model': r[0] or 'unknown',
+                        'provider': r[1] or 'unknown',
+                        'calls': r[2] or 0,
+                        'tokens_in': r[3] or 0,
+                        'tokens_out': r[4] or 0,
+                        'duration_ms': r[5] or 0,
+                        'cost_est': cost
+                    })
+                    total_calls += (r[2] or 0)
+                    total_tokens += (r[3] or 0) + (r[4] or 0)
+                daily = [{'date': r[0], 'calls': r[1], 'tokens_in': r[2], 'tokens_out': r[3]} for r in daily_rows]
+                total_cost = sum(m['cost_est'] for m in models)
+                result = {
+                    'range': range_h,
+                    'total_calls': total_calls,
+                    'total_tokens': total_tokens,
+                    'total_cost_est': round(total_cost, 4),
+                    'models': models,
+                    'daily': daily
+                }
+                body = json.dumps(result, ensure_ascii=False).encode('utf-8')
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json; charset=utf-8')
+                self.send_header('Cache-Control', 'no-cache')
+                self.end_headers()
+                try: self.wfile.write(body)
+                except BrokenPipeError: pass
+            except Exception as e:
+                logging.warning(f'/api/tokens error: {e}')
                 body = json.dumps({'error': str(e)}).encode()
                 self.send_response(500)
                 self.send_header('Content-Type', 'application/json')
