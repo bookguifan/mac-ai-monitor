@@ -190,6 +190,7 @@ button{cursor:pointer;border:none;outline:none;font:inherit}
 .cron-badge{display:inline-flex;align-items:center;gap:3px;padding:1px 6px;
   border-radius:10px;font-size:9px;font-weight:600}
 .cb-ok{background:rgba(61,214,140,.15);color:var(--green)}
+.cb-err{background:rgba(255,107,107,.15);color:var(--red)}
 .cb-warn{background:rgba(255,179,71,.15);color:var(--orange)}
 .cb-off{background:rgba(74,90,114,.3);color:var(--text3);text-decoration:line-through}
 .cb-dis{background:rgba(74,90,114,.3);color:var(--text3)}

@@ -27,7 +27,7 @@ HOME          = os.path.expanduser('~')
 SCRIPT_DIR    = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR      = os.path.join(SCRIPT_DIR, 'data')
 LOG_FILE      = os.path.join(DATA_DIR, 'logs', 'monitor.log')
-__version__   = '2.17.0'
+__version__   = '2.18.0'
 ALERT_FILE    = os.path.join(DATA_DIR, 'alerts.json')
 ALERT_COOLDOWN = 1800  # 30 分钟相同告警不重复
 ALERT_CONFIG_FILE = os.path.join(DATA_DIR, 'alert_config.json')
@@ -1241,6 +1241,14 @@ def collect_all():
 
     # ---- Cron ----
     data['cron'] = []
+    # load state file for richer cron observability
+    cron_state = {}
+    state_path = os.path.join(HOME,'.qclaw/cron/jobs-state.json')
+    if os.path.exists(state_path):
+        try:
+            state_data = try_json(state_path)
+            cron_state = state_data.get('jobs',{})
+        except Exception as _exc_st: logging.debug(f"suppressed: {_exc_st}")
     for cp,src in [
         (os.path.join(HOME,'.qclaw/cron/jobs.json'),'QClaw'),
         (os.path.join(HOME,'.qclaw-hermes/cron/jobs.json'),'QClaw'),
@@ -1251,6 +1259,7 @@ def collect_all():
         try:
             cd=try_json(cp)
             for job in cd.get('jobs',[]):
+                jid = job.get('id','')
                 sched=job.get('schedule',{})
                 expr=sched.get('expr','') or sched.get('display',job.get('schedule_display','?'))
                 lr=job.get('last_run_at','')
@@ -1263,18 +1272,30 @@ def collect_all():
                 dc=delivery.get('channel','—')
                 ch_cn={'openclaw-weixin':'微信','feishu':'飞书','telegram':'Telegram'}.get(dc,dc)
                 payload=job.get('payload',{})
+                # enrich with state data
+                st = cron_state.get(jid,{}).get('state',{})
+                last_err = st.get('lastError','')
+                last_dur_ms = st.get('lastDurationMs',0)
+                consec_err = st.get('consecutiveErrors',0)
+                last_status = st.get('lastRunStatus') or st.get('lastStatus') or job.get('last_status','')
                 data['cron'].append({
-                    'name':job.get('name',f"Cron#{job.get('id','?')[:8]}"),
+                    'id':jid[:12],
+                    'name':job.get('name',f"Cron#{jid[:8]}"),
                     'schedule':expr,
                     'model':payload.get('model',job.get('model','—')),
                     'last_run':lr or '—',
+                    'last_run_at_ms':st.get('lastRunAtMs',0),
                     'next_run':_cron_next(expr) or '—',
+                    'next_run_at_ms':st.get('nextRunAtMs',0),
                     'enabled':job.get('enabled',True),
                     'delivery_mode':delivery.get('mode','—'),
                     'delivery_channel':ch_cn,
                     'delivery_to':delivery.get('to','')[:40],
                     'source':src,
-                    'status':'✅' if job.get('last_status')=='ok' else ('⚠️' if job.get('last_status') else '—'),
+                    'status':'✅' if last_status=='ok' else ('❌' if last_status=='error' else ('⚠️' if last_status else '—')),
+                    'last_error':last_err[:120] if last_err else '',
+                    'last_duration_ms':last_dur_ms,
+                    'consecutive_errors':consec_err,
                 })
         except Exception as e: logging.warning(f'cron {cp}: {e}')
 
@@ -1845,6 +1866,7 @@ button{cursor:pointer;border:none;outline:none;font:inherit}
 .cron-badge{display:inline-flex;align-items:center;gap:3px;padding:1px 6px;
   border-radius:10px;font-size:9px;font-weight:600}
 .cb-ok{background:rgba(61,214,140,.15);color:var(--green)}
+.cb-err{background:rgba(255,107,107,.15);color:var(--red)}
 .cb-warn{background:rgba(255,179,71,.15);color:var(--orange)}
 .cb-off{background:rgba(74,90,114,.3);color:var(--text3);text-decoration:line-through}
 .cb-dis{background:rgba(74,90,114,.3);color:var(--text3)}
@@ -2955,6 +2977,49 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header('Content-Type', 'application/json')
                 self.end_headers()
                 self.wfile.write(body)
+        elif self.path.startswith('/api/cron-runs'):
+            # Cron 运行历史
+            import urllib.parse as uparse
+            qs = uparse.urlparse(self.path).query
+            params = uparse.parse_qs(qs)
+            job_id = params.get('jobId', [None])[0]
+            limit = min(int(params.get('limit', ['20'])[0]), 100)
+            runs_dir = os.path.join(HOME,'.qclaw/cron/runs')
+            runs = []
+            if job_id and os.path.isdir(runs_dir):
+                run_file = os.path.join(runs_dir, f"{job_id}.jsonl")
+                if os.path.isfile(run_file):
+                    try:
+                        with open(run_file) as f:
+                            lines = [ln.strip() for ln in f if ln.strip()]
+                        # parse last N lines (newest = last line)
+                        parse_limit = min(limit, len(lines))
+                        for ln in lines[-parse_limit:]:
+                            try:
+                                rec = json.loads(ln)
+                                dur = rec.get('durationMs', 0)
+                                dur_s = round(dur / 1000, 1) if dur else 0
+                                runs.append({
+                                    'ts': rec.get('ts'),
+                                    'status': rec.get('status', 'unknown'),
+                                    'duration_s': dur_s,
+                                    'summary': (rec.get('summary') or '')[:200],
+                                    'error': (rec.get('error') or '')[:200],
+                                    'model': rec.get('model', ''),
+                                })
+                            except Exception:
+                                pass
+                    except Exception as _exc_cr: logging.debug(f"cron-runs: {_exc_cr}")
+            else:
+                # no jobId: return summary of all jobs
+                pass
+            body = json.dumps({'runs': runs, 'total': len(runs)}, ensure_ascii=False).encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.send_header('Cache-Control', 'no-cache')
+            self.end_headers()
+            try: self.wfile.write(body)
+            except BrokenPipeError: pass
         elif self.path.startswith('/api/export'):
             # Export current snapshot as JSON or CSV
             fmt = 'json'

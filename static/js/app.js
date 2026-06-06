@@ -812,17 +812,21 @@ function render(d){
     </div>
     <div class="card card-collapsible" id="panel-cron">
       <div class="ch">定时任务 <span class="ch-r">${(d.cron||[]).length}个</span></div>
-      <div class="cb scroll" style="max-height:280px">
+      <div class="cb scroll" style="max-height:400px">
         ${(d.cron||[]).map(j=>`
-        <div style="padding:6px 0;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;gap:6px;flex-wrap:wrap">
-          <span style="font-size:12px;min-width:100px;font-weight:500">${esc(j.name||'?')}</span>
-          ${j.source?`<span class="gw-badge" style="background:var(--blue);color:#fff;font-size:9px">${esc(j.source)}</span>`:''}
-          ${j.software&&j.software!==j.source?`<span style="color:var(--text2);font-size:10px">${esc(j.software)}</span>`:''}
-          <span class="cron-badge ${j.enabled===false?'cb-dis':j.status==='✅'?'cb-ok':j.status==='⚠️'?'cb-warn':'cb-off'}">${esc(j.status||'—')}</span>
-          <span style="color:var(--text2);font-size:11px">${esc(j.schedule||'?')}</span>
-          ${j.next_run&&j.next_run!='—'?`<span style="color:var(--green);font-size:10px">下次 ${esc(j.next_run)}</span>`:''}
-          ${j.delivery_channel&&j.delivery_channel!='—'?`<span style="color:var(--accent);font-size:10px">${esc(j.delivery_channel)}</span>`:''}
-          ${j.last_run&&j.last_run!='—'?`<span style="color:var(--text3);font-size:10px;margin-left:auto">${esc(j.last_run)}</span>`:''}
+        <div class="cron-item" data-jid="${esc(j.id||'')}" style="padding:8px 0;border-bottom:1px solid var(--border)">
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+            <span style="font-size:12px;min-width:100px;font-weight:500">${esc(j.name||'?')}</span>
+            ${j.source?`<span class="gw-badge" style="background:var(--blue);color:#fff;font-size:9px">${esc(j.source)}</span>`:''}
+            <span class="cron-badge ${j.enabled===false?'cb-dis':j.status==='✅'?'cb-ok':j.status==='❌'?'cb-err':j.status==='⚠️'?'cb-warn':'cb-off'}">${esc(j.status||'—')}</span>
+            <span style="color:var(--text2);font-size:11px">${esc(j.schedule||'?')}</span>
+            ${j.next_run&&j.next_run!='—'?`<span style="color:var(--green);font-size:10px">下次 ${esc(j.next_run)}</span>`:''}
+            ${j.last_run&&j.last_run!='—'?`<span style="color:var(--text3);font-size:10px;margin-left:auto">${esc(j.last_run)}</span>`:''}
+          </div>
+          ${j.last_error?`<div style="color:var(--red);font-size:10px;margin-top:4px;word-break:break-all">❌ ${esc(j.last_error)}</div>`:''}
+          ${j.last_duration_ms?`<div style="color:var(--text2);font-size:10px;margin-top:2px">⏱ 上次耗时 ${(j.last_duration_ms/1000).toFixed(1)}s${j.consecutive_errors>0?` · <span style="color:var(--maroon)">连续${j.consecutive_errors}次失败</span>`:''}</div>`:''}
+          <div class="cron-runs-preview" data-jid="${esc(j.id||'')}" style="display:none;margin-top:6px;max-height:200px;overflow-y:auto;border-top:1px solid var(--border);padding-top:4px"></div>
+          ${j.id?`<button class="cron-runs-btn" data-jid="${esc(j.id)}" style="margin-top:4px;font-size:10px;background:var(--bg);border:1px solid var(--border);border-radius:4px;cursor:pointer;color:var(--accent);padding:2px 8px">📋 运行历史</button>`:''}
         </div>`).join('')}
         ${(d.cron||[]).length===0?'<div style="color:var(--text3);padding:12px">暂无定时任务</div>':''}
       </div>
@@ -1380,6 +1384,60 @@ window.fetchGatewayLog = function() {
       contentEl.textContent = '加载失败: ' + err.message;
     });
 };
+
+// ---- Cron 运行历史 -------
+var _cronRunsCache = {};
+document.addEventListener('click', function(e) {
+  var btn = e.target.closest('.cron-runs-btn');
+  if (!btn) return;
+  var jid = btn.getAttribute('data-jid');
+  if (!jid) return;
+  var preview = document.querySelector('.cron-runs-preview[data-jid="'+jid+'"]');
+  if (!preview) return;
+  // toggle
+  if (preview.style.display === 'block') {
+    preview.style.display = 'none';
+    btn.textContent = '📋 运行历史';
+    return;
+  }
+  // load from cache or fetch
+  btn.textContent = '⏳ 加载中...';
+  preview.style.display = 'block';
+  var renderRuns = function(runs) {
+    if (!runs || runs.length===0) {
+      preview.innerHTML = '<span style="color:var(--text3);font-size:10px">暂无运行历史</span>';
+      btn.textContent = '📋 运行历史';
+      return;
+    }
+    var html = runs.slice().reverse().map(function(r) {
+      var ts = r.ts ? new Date(r.ts).toLocaleString('zh-CN', {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '—';
+      var statusIcon = r.status==='ok'?'✅':r.status==='error'?'❌':'⚠️';
+      return '<div style="padding:4px 0;border-bottom:1px solid var(--border);font-size:10px">'
+        + '<span style="margin-right:4px">'+statusIcon+'</span>'
+        + '<span style="color:var(--text3);margin-right:8px">'+ts+'</span>'
+        + '<span style="color:var(--text2)">⏱'+r.duration_s+'s</span>'
+        + (r.model?' <span style="color:var(--accent)">'+esc(r.model)+'</span>':'')
+        + (r.error?'<div style="color:var(--red);margin-top:2px">'+esc(r.error)+'</div>':'')
+        + (r.summary&&r.summary!==r.error?'<div style="color:var(--text2);margin-top:1px;max-height:2.4em;overflow:hidden;text-overflow:ellipsis;">'+esc(r.summary)+'</div>':'')
+        + '</div>';
+    }).join('');
+    preview.innerHTML = html;
+    btn.textContent = '📋 收起历史';
+  };
+  if (_cronRunsCache[jid]) {
+    renderRuns(_cronRunsCache[jid]);
+    return;
+  }
+  fetch('/api/cron-runs?jobId='+encodeURIComponent(jid)+'&limit=20')
+    .then(function(r){return r.json();})
+    .then(function(data){
+      _cronRunsCache[jid] = data.runs||[];
+      renderRuns(data.runs||[]);
+    }).catch(function(err){
+      preview.innerHTML = '<span style="color:var(--red);font-size:10px">加载失败: '+esc(err.message)+'</span>';
+      btn.textContent = '📋 运行历史';
+    });
+});
 
 // ---- 页面可见性控制（Tab切换停止Auto刷新） ----
 document.addEventListener('visibilitychange', () => {
