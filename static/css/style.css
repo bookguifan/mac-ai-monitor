@@ -333,3 +333,8 @@ button{cursor:pointer;border:none;outline:none;font:inherit}
 .diag-trigger{cursor:pointer;user-select:none}
 .diag-arrow{font-size:10px;margin-left:6px;transition:transform .3s;display:inline-block}
 .diag-arrow.rotated{transform:rotate(180deg)}
+
+/* Agent Telemetry / Token Panel summary stats */
+.hist-stat{padding:8px;background:var(--card-h);border-radius:8px;text-align:center;display:flex;flex-direction:column;gap:2px}
+.hs-v{font-size:20px;font-weight:700;font-variant-numeric:tabular-nums}
+.hs-l{font-size:9px;color:var(--text3)}
