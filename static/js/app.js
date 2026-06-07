@@ -407,35 +407,6 @@ function render(d){
     btn.textContent=isCollapsed?'⇪':'⇩';
   }
 
-  // Historical chart placeholder
-  const main=document.getElementById('app');
-  if(main){
-    const gauges=document.querySelector('.gauge-row');
-    if(gauges&&!document.getElementById('hist-chart-insert')){
-      const insert=document.createElement('div');
-      insert.id='hist-chart-insert';
-      insert.className='hist-panel';
-      insert.innerHTML='<div class="hist-card"><div class="hist-title">📈 历史趋势</div><div id="hist-chart" style="width:100%;height:250px"></div></div>';
-      main.insertBefore(insert,gauges);
-    }
-    // Token 使用量パネル (履歴チャート直後)
-    if(gauges&&!document.getElementById('token-panel-insert')){
-      const tp=document.createElement('div');
-      tp.id='token-panel-insert';
-      tp.className='hist-panel';
-      tp.innerHTML='<div class="hist-card"><div class="hist-title">💰 Token 使用量</div><div id="token-chart" style="min-height:80px;color:var(--text3);font-size:12px;text-align:center;padding:20px">加载中...</div></div>';
-      main.insertBefore(tp,gauges);
-    }
-    // Agent 遥测パネル (Tokenパネル直後)
-    if(gauges&&!document.getElementById('telemetry-panel-insert')){
-      var ap=document.createElement('div');
-      ap.id='telemetry-panel-insert';
-      ap.className='hist-panel';
-      ap.innerHTML='<div class="hist-card"><div class="hist-title">📡 Agent 遥测</div><div id="telemetry-chart" style="min-height:80px;color:var(--text3);font-size:12px;text-align:center;padding:20px">加载中...</div></div>';
-      main.insertBefore(ap,gauges);
-    }
-  }
-
   // Header
   document.title = 'Mac AI Monitor v'+(d.version||'?');
   $('#ts').textContent = d.timestamp||'—';
@@ -1063,6 +1034,35 @@ function render(d){
   </footer>`;
 
   $('#app').innerHTML = html;
+
+  // Historical chart / Token / Agent Telemetry panel placeholders
+  const main=document.getElementById('app');
+  if(main){
+    const gauges=document.querySelector('.gauge-row');
+    if(gauges&&!document.getElementById('hist-chart-insert')){
+      const insert=document.createElement('div');
+      insert.id='hist-chart-insert';
+      insert.className='hist-panel';
+      insert.innerHTML='<div class="hist-card"><div class="hist-title">📈 历史趋势</div><div id="hist-chart" style="width:100%;height:250px"></div></div>';
+      main.insertBefore(insert,gauges);
+    }
+    // Token 使用量パネル (履歴チャート直後)
+    if(gauges&&!document.getElementById('token-panel-insert')){
+      const tp=document.createElement('div');
+      tp.id='token-panel-insert';
+      tp.className='hist-panel';
+      tp.innerHTML='<div class="hist-card"><div class="hist-title">💰 Token 使用量</div><div id="token-chart" style="min-height:80px;color:var(--text3);font-size:12px;text-align:center;padding:20px">加载中...</div></div>';
+      main.insertBefore(tp,gauges);
+    }
+    // Agent 遥测パネル (Tokenパネル直後)
+    if(gauges&&!document.getElementById('telemetry-panel-insert')){
+      var ap=document.createElement('div');
+      ap.id='telemetry-panel-insert';
+      ap.className='hist-panel';
+      ap.innerHTML='<div class="hist-card"><div class="hist-title">📡 Agent 遥测</div><div id="telemetry-chart" style="min-height:80px;color:var(--text3);font-size:12px;text-align:center;padding:20px">加载中...</div></div>';
+      main.insertBefore(ap,gauges);
+    }
+  }
 
   // P0-3: Restore state after render
   if (window.scrollY === 0 || Math.abs(window.scrollY - scrollTop) > 100) {

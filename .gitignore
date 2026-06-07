@@ -21,3 +21,4 @@ memory/
 .DS_Store
 data/timeseries.db
 token_stats.db
+*.bak.*
