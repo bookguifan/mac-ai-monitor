@@ -1401,7 +1401,7 @@ async function manualRefresh() {
 })();
 
 // ---- 刷新按钮 ----
-$('#btn-refresh').onclick = () => {
+(function(){ const _br=$('#btn-refresh'); if(_br) _br.onclick = () => {
   if (!_autoRefresh) {
     manualRefresh();
   } else {
@@ -1409,8 +1409,7 @@ $('#btn-refresh').onclick = () => {
     silentLoad();
     startAutoRefresh();
   }
-};
-
+}})();
 
 // ---- Gateway 日志弹窗 ----
 window.fetchGatewayLog = function() {

@@ -3,7 +3,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mac AI Monitor</title>
-<link rel="stylesheet" href="static/css/style.css">
+<style>
+/* 内联兜底 - 即使 CSS 文件加载失败也能保持暗色主题 */
+:root{--bg:#0b0f1a;--card:#131a2e;--card-h:#19213a;--border:#1e2d45;--accent:#00cfff;--accent2:#7b61ff;--green:#3dd68c;--orange:#ffb347;--red:#ff6b6b;--text:#e6edf3;--text2:#a8c4e0;--text3:#6b8299;--r:6px;--glow:0 0 20px rgba(0,207,255,.15)}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'SF Pro',sans-serif;font-size:13px;line-height:1.5;min-height:100vh}
+</style>
+<link rel="stylesheet" href="static/css/style.css?v=2.19.4">
 </head>
 <body>
 
@@ -45,6 +50,6 @@
 <div class="ft" id="ft"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/uplot@1.6.30/dist/uPlot.iife.min.js"></script>
-<script src="static/js/app.js"></script>
+<script src="static/js/app.js?v=2.19.4"></script>
 </body>
 </html>
